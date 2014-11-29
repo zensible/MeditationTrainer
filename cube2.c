@@ -25,6 +25,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
+#include "esUtil.h"
 #include <openedf.h>
 #include <sys/time.h>
 #include <pctimer.h>
@@ -32,11 +33,13 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
 #include <nsutil.h>
 #include <nsnet.h>
 #include <glib.h>
+
 #include "monitor.h"
 
 sock_t sock_fd;
 char EDFPacket[MAXHEADERLEN];
 GIOChannel *neuroserver;
+
 const char *helpText =
 "sampleClient   v 0.34 by Rudi Cilibrasi\n"
 "\n"
@@ -51,8 +54,6 @@ const char *helpText =
 
 #define MINLINELENGTH 4
 #define DELIMS " \r\n"
-
-
 #define VIEWWIDTH 768
 #define VIEWHEIGHT 128
 #define TOPMARGIN 80
@@ -75,6 +76,20 @@ struct Options {
     double seconds;
 };
 
+typedef struct
+{
+  // Handle to a program object
+  GLuint programObject;
+  GLint locGlobalTime;
+  GLint locIChannel0;
+  GLfloat locYOffset;
+  struct timeval timeStart;
+
+   // Texture handle
+   GLuint textureId;
+
+} UserData;
+
 static struct OutputBuffer ob;
 struct InputBuffer ib;
 char lineBuf[MAXLEN];
@@ -82,12 +97,23 @@ int linePos = 0;
 
 struct Options opts;
 
+// eeg client-related prototypes
 void idleHandler(void);
 int isANumber(const char *str);
 void serverDied(void);
 
+// Display-related prototypes
+GLuint LoadShader ( GLenum type, const char *shaderSrc );
+GLuint LoadShaderDisk ( GLenum type, const GLchar *shaderSrc );
+
+int Init ( ESContext *esContext );
+void Draw ( ESContext *esContext );
+
 int main(int argc, char **argv)
 {
+
+
+  // Init eeg client
   char cmdbuf[80];
   int EDFLen = MAXHEADERLEN;
   struct EDFDecodedConfig cfg;
@@ -160,11 +186,21 @@ int main(int argc, char **argv)
   writeString(sock_fd, cmdbuf, &ob);
   getOK(sock_fd, &ib);
 
-  t0 = pctimer();
-  for (;;) {
-      idleHandler();
-  }
 
+   ESContext esContext;
+   UserData  userData;
+
+   esInitContext ( &esContext );
+   esContext.userData = &userData;
+
+   esCreateWindow ( &esContext, "Hello Triangle", 768, 768, ES_WINDOW_RGB );
+
+   if ( !Init ( &esContext ) )
+      return 0;
+
+   esRegisterDrawFunc ( &esContext, Draw );
+
+   esMainLoop ( &esContext );
   return 0;
 }
 
@@ -174,6 +210,9 @@ void serverDied(void)
   exit(1);
 }
 
+/*
+ * eeg-client-related functions
+ */
 void handleSample(int channel, int val)
 {
     static int updateCounter = 0;
@@ -183,6 +222,7 @@ void handleSample(int channel, int val)
         return;
         //exit(0);
     }
+
     if (readSamples == VIEWWIDTH-1) {
       memmove(&sampleBuf[channel][0], &sampleBuf[channel][1],  sizeof(int)*(VIEWWIDTH-1));
     }
@@ -254,5 +294,124 @@ void initGTKSystem(void)
   neuroserver = g_io_channel_unix_new(sock_fd);
 
   g_io_add_watch(neuroserver, G_IO_IN, readHandler, NULL);
+
+}
+
+/*
+ * Drawing-related functions
+ */
+GLuint LoadTexture ( char *fileName )
+{
+   int width,
+       height;
+   char *buffer = esLoadTGA ( fileName, &width, &height );
+   GLuint texId;
+
+   if ( buffer == NULL )
+   {
+      esLogMessage ( "Error loading (%s) image.\n", fileName );
+      return 0;
+   }
+
+   glGenTextures ( 1, &texId );
+   glBindTexture ( GL_TEXTURE_2D, texId );
+
+   glTexImage2D ( GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, buffer );
+   glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
+   glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+   glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT );  // GL_CLAMP_TO_EDGE
+   glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT );  // GL_CLAMP_TO_EDGE
+
+   free ( buffer );
+
+   return texId;
+}
+
+
+char* file_read(const char* filename)
+{
+  FILE* input = fopen(filename, "rb");
+  if(input == NULL) return NULL;
+ 
+  if(fseek(input, 0, SEEK_END) == -1) return NULL;
+  long size = ftell(input);
+  if(size == -1) return NULL;
+  if(fseek(input, 0, SEEK_SET) == -1) return NULL;
+ 
+  /*if using c-compiler: dont cast malloc's return value*/
+  char *content = (char*) malloc( (size_t) size +1  ); 
+  if(content == NULL) return NULL;
+ 
+  fread(content, 1, (size_t)size, input);
+  if(ferror(input)) {
+    free(content);
+    return NULL;
+  }
+ 
+  fclose(input);
+  content[size] = '\0';
+  return content;
+}
+
+GLuint LoadShaderDisk ( GLenum type, const char *filename )
+{
+
+  const GLchar* source = file_read(filename);
+  if (source == NULL) {
+    fprintf(stderr, "Error opening %s: ", filename); perror("");
+    return 0;
+  }
+
+  printf("Source:\n\n%s", source);
+
+  const GLchar* sources[2] = {
+    "#version 100\n"
+    "#define GLES2\n",
+    source };
+
+  GLuint shader;
+  GLint compiled;
+   
+  // Create the shader object
+  shader = glCreateShader ( type );
+
+   if ( shader == 0 )
+    return 0;
+
+  glShaderSource(shader, 2, sources, NULL);
+  free((void*)source);
+
+   // Load the shader source
+   //glShaderSource ( shader, 1, &shaderSrc, NULL );
+   //glShaderSource ( shader, 1, &array, NULL );
+   //glShaderSource ( shader, 1, (const GLchar**)&Src, 0 );
+   
+   // Compile the shader
+   glCompileShader ( shader );
+
+   // Check the compile status
+   glGetShaderiv ( shader, GL_COMPILE_STATUS, &compiled );
+
+   if ( !compiled ) 
+   {
+      GLint infoLen = 0;
+
+      glGetShaderiv ( shader, GL_INFO_LOG_LENGTH, &infoLen );
+      
+      if ( infoLen > 1 )
+      {
+         char* infoLog = malloc (sizeof(char) * infoLen );
+
+         glGetShaderInfoLog ( shader, infoLen, NULL, infoLog );
+         esLogMessage ( "Error compiling shader:\n%s\n", infoLog );            
+         
+         free ( infoLog );
+      }
+
+      glDeleteShader ( shader );
+      return 0;
+   }
+
+   return shader;
 
 }

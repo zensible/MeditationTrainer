@@ -25,7 +25,15 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
+
+#include <GLES2/gl2.h>
+#include <EGL/egl.h>
+
+#include  <X11/Xlib.h>
+#include  <X11/Xatom.h>
+#include  <X11/Xutil.h>
 #include "esUtil.h"
+
 #include <openedf.h>
 #include <sys/time.h>
 #include <pctimer.h>
@@ -33,6 +41,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
 #include <nsutil.h>
 #include <nsnet.h>
 #include <glib.h>
+
 
 #include "monitor.h"
 
@@ -112,7 +121,6 @@ void Draw ( ESContext *esContext );
 int main(int argc, char **argv)
 {
 
-
   // Init eeg client
   char cmdbuf[80];
   int EDFLen = MAXHEADERLEN;
@@ -187,20 +195,60 @@ int main(int argc, char **argv)
   getOK(sock_fd, &ib);
 
 
-   ESContext esContext;
-   UserData  userData;
+  ESContext esContext;
+  UserData  userData;
 
-   esInitContext ( &esContext );
-   esContext.userData = &userData;
+  esInitContext ( &esContext );
+  esContext.userData = &userData;
 
-   esCreateWindow ( &esContext, "Hello Triangle", 768, 768, ES_WINDOW_RGB );
+  esCreateWindow ( &esContext, "Hello Triangle", 256, 256, ES_WINDOW_RGB );
 
-   if ( !Init ( &esContext ) )
-      return 0;
+  if ( !Init ( &esContext ) )
+     return 0;
 
-   esRegisterDrawFunc ( &esContext, Draw );
+  esRegisterDrawFunc ( &esContext, Draw );
 
-   esMainLoop ( &esContext );
+  //esMainLoop ( &esContext );
+
+  struct timeval t1, t2;
+  struct timezone tz;
+  float deltatime;
+  float totaltime = 0.0f;
+  unsigned int frames = 0;
+
+  gettimeofday ( &t1 , &tz );
+
+  while (userInterrupt(&esContext) == GL_FALSE)
+  {
+    idleHandler();
+    idleHandler();
+    idleHandler();
+    idleHandler();
+    idleHandler();
+    idleHandler();
+    idleHandler();
+
+    gettimeofday(&t2, &tz);
+    deltatime = (float)(t2.tv_sec - t1.tv_sec + (t2.tv_usec - t1.tv_usec) * 1e-6);
+    t1 = t2;
+
+    if (esContext.updateFunc != NULL)
+      esContext.updateFunc(&esContext, deltatime);
+    if (esContext.drawFunc != NULL)
+      esContext.drawFunc(&esContext);
+
+    eglSwapBuffers(esContext.eglDisplay, esContext.eglSurface);
+
+    totaltime += deltatime;
+    frames++;
+    if (totaltime >  2.0f)
+    {
+      printf("%4d frames rendered in %1.4f seconds -> FPS=%3.4f\n", frames, totaltime, frames/totaltime);
+      totaltime -= 2.0f;
+      frames = 0;
+    }
+  }
+
   return 0;
 }
 
@@ -271,8 +319,9 @@ void idleHandler(void)
         }
     }
 //  rprintf("Got sample with %d channels: %d\n", channels, packetCounter);
-        for (i = 0; i < 2; ++i)
-            handleSample(i, samples[i]);
+
+    for (i = 0; i < 2; ++i)
+        handleSample(i, samples[i]);
 }
 
 int isANumber(const char *str) {
@@ -353,6 +402,55 @@ char* file_read(const char* filename)
   return content;
 }
 
+
+///
+// Create a shader object, load the shader source, and
+// compile the shader.
+//
+GLuint LoadShader ( GLenum type, const char *shaderSrc )
+{
+   GLuint shader;
+   GLint compiled;
+   
+   // Create the shader object
+   shader = glCreateShader ( type );
+
+   if ( shader == 0 )
+    return 0;
+
+   // Load the shader source
+   glShaderSource ( shader, 1, &shaderSrc, NULL );
+   
+   // Compile the shader
+   glCompileShader ( shader );
+
+   // Check the compile status
+   glGetShaderiv ( shader, GL_COMPILE_STATUS, &compiled );
+
+   if ( !compiled ) 
+   {
+      GLint infoLen = 0;
+
+      glGetShaderiv ( shader, GL_INFO_LOG_LENGTH, &infoLen );
+      
+      if ( infoLen > 1 )
+      {
+         char* infoLog = malloc (sizeof(char) * infoLen );
+
+         glGetShaderInfoLog ( shader, infoLen, NULL, infoLog );
+         esLogMessage ( "Error compiling shader:\n%s\n", infoLog );            
+         
+         free ( infoLog );
+      }
+
+      glDeleteShader ( shader );
+      return 0;
+   }
+
+   return shader;
+
+}
+
 GLuint LoadShaderDisk ( GLenum type, const char *filename )
 {
 
@@ -414,4 +512,145 @@ GLuint LoadShaderDisk ( GLenum type, const char *filename )
 
    return shader;
 
+}
+
+
+
+///
+// Initialize the shader and program object
+//
+int Init ( ESContext *esContext )
+{
+   esContext->userData = malloc(sizeof(UserData));
+
+   UserData *userData = esContext->userData;
+   GLbyte vShaderStr[] =  
+      "attribute vec4 vPosition;    \n"
+      "void main()                  \n"
+      "{                            \n"
+      "   gl_Position = vPosition;  \n"
+      "}                            \n";
+
+  const char* filename;
+  filename = "/home/ubuntu/openeeg/opengl_c/LinuxX11/Chapter_2/Hello_Triangle/oscope.glsl";
+
+  GLuint vertexShader;
+  GLuint fragmentShader;
+  GLuint programObject;
+  GLint linked;
+
+  // Load the vertex/fragment shaders
+  vertexShader = LoadShader ( GL_VERTEX_SHADER, vShaderStr );
+  fragmentShader = LoadShaderDisk ( GL_FRAGMENT_SHADER, filename );
+
+  // Create the program object
+  programObject = glCreateProgram ( );
+   
+  if ( programObject == 0 )
+     return 0;
+
+  glAttachShader ( programObject, vertexShader );
+  glAttachShader ( programObject, fragmentShader );
+
+  // Bind vPosition to attribute 0   
+  glBindAttribLocation ( programObject, 0, "vPosition" );
+
+  // Link the program
+  glLinkProgram ( programObject );
+
+  // Check the link status
+  glGetProgramiv ( programObject, GL_LINK_STATUS, &linked );
+
+  srand(time(NULL));
+
+  if ( !linked ) 
+  {
+     GLint infoLen = 0;
+
+     glGetProgramiv ( programObject, GL_INFO_LOG_LENGTH, &infoLen );
+      
+     if ( infoLen > 1 )
+     {
+        char* infoLog = malloc (sizeof(char) * infoLen );
+        glGetProgramInfoLog ( programObject, infoLen, NULL, infoLog );
+        esLogMessage ( "Error linking program:\n%s\n", infoLog );            
+        
+        free ( infoLog );
+     }
+
+     glDeleteProgram ( programObject );
+     return GL_FALSE;
+  }
+
+  // Store the program object
+  userData->programObject = programObject;
+
+  // Get the uniform locations
+  userData->locGlobalTime = glGetUniformLocation( userData->programObject, "iGlobalTime" );
+  userData->locIChannel0 = glGetUniformLocation( userData->programObject, "iChannel0" );
+  userData->locYOffset = glGetUniformLocation( userData->programObject, "yOffset" );
+
+  gettimeofday(&userData->timeStart, NULL);
+
+  //userData->textureId = load_texture_TGA( "/home/ubuntu/openeeg/opengl_c/LinuxX11/Chapter_10/MultiTexture/tex16.tga", NULL, NULL, GL_REPEAT, GL_REPEAT );
+  userData->textureId = LoadTexture("/home/ubuntu/openeeg/opengl_c/LinuxX11/Chapter_2/Hello_Triangle/tex16.tga" );
+
+
+  if ( userData->textureId == 0 )
+    return FALSE;
+
+  glClearColor ( 0.0f, 1.0f, 0.0f, 0.0f );
+  return GL_TRUE;
+}
+
+///
+// Draw a triangle using the shader pair created in Init()
+//
+void Draw ( ESContext *esContext )
+{
+  UserData *userData = esContext->userData;
+  GLfloat vVertices1[] = { -1.0f, -1.0f, 0.0f, 
+                           -1.0f, 1.0f, 0.0f,
+                           1.0f, 1.0f, 0.0f,
+                           1.0f, 1.0f, 0.0f,
+                           1.0f, -1.0f, 0.0f,
+                           -1.0f, -1.0f, 0.0f,
+                          };
+
+  // Set the viewport
+  glViewport ( 0, 0, esContext->width, esContext->height );
+   
+  // Clear the color buffer
+  glClear ( GL_COLOR_BUFFER_BIT );
+
+  // Use the program object
+  glUseProgram ( userData->programObject );
+
+  // Load the vertex data
+  glVertexAttribPointer ( 0, 3, GL_FLOAT, GL_FALSE, 0, vVertices1 );
+  glEnableVertexAttribArray ( 0 );
+
+  struct timeval timeNow, timeResult;
+  gettimeofday(&timeNow, NULL);
+  timersub(&timeNow, &userData->timeStart, &timeResult);
+  float diffMs = (float)(timeResult.tv_sec + (timeResult.tv_usec / 1000000.0));
+
+  //printf("Time elapsed: %ld.%06ld %f\n", (long int)timeResult.tv_sec, (long int)timeResult.tv_usec, diffMs);
+
+   // Bind the texture
+  glActiveTexture ( GL_TEXTURE0 );
+  glBindTexture ( GL_TEXTURE_2D, userData->textureId );
+
+  // Load the MVP matrix
+  glUniform1f( userData->locGlobalTime, diffMs );
+
+  // Set the sampler texture unit to 0
+  glUniform1i ( userData->locIChannel0, 0 );
+
+  // Set the sampler texture unit to 0
+  glUniform1f ( userData->locYOffset, 0.5 );
+
+  //printf("Diffms: %f", diffMs);
+
+  glDrawArrays ( GL_TRIANGLE_STRIP, 0, 18 );
 }

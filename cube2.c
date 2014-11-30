@@ -42,6 +42,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
 #include <nsnet.h>
 #include <glib.h>
 
+#include <fftw3.h>
 
 #include "monitor.h"
 
@@ -117,6 +118,8 @@ GLuint LoadShaderDisk ( GLenum type, const GLchar *shaderSrc );
 
 int Init ( ESContext *esContext );
 void Draw ( ESContext *esContext );
+
+float avg = 0.1;
 
 int main(int argc, char **argv)
 {
@@ -194,14 +197,13 @@ int main(int argc, char **argv)
   writeString(sock_fd, cmdbuf, &ob);
   getOK(sock_fd, &ib);
 
-
   ESContext esContext;
   UserData  userData;
 
   esInitContext ( &esContext );
   esContext.userData = &userData;
 
-  esCreateWindow ( &esContext, "Hello Triangle", 256, 256, ES_WINDOW_RGB );
+  esCreateWindow ( &esContext, "Hello Triangle", 512, 512, ES_WINDOW_RGB );
 
   if ( !Init ( &esContext ) )
      return 0;
@@ -218,8 +220,12 @@ int main(int argc, char **argv)
 
   gettimeofday ( &t1 , &tz );
 
+  int counter = 0;
+
   while (userInterrupt(&esContext) == GL_FALSE)
   {
+    counter++;
+    printf("counter %d", counter);
     idleHandler();
     idleHandler();
     idleHandler();
@@ -227,6 +233,86 @@ int main(int argc, char **argv)
     idleHandler();
     idleHandler();
     idleHandler();
+
+    // 0.05 - .9
+    /*
+    int i;
+    int total;
+    int total_populated;
+    total = 0;
+    total_populated = 0;
+    for (i = 0; i < VIEWWIDTH; i++) {
+      int val = sampleBuf[0][i];
+      total += val;
+      if (val > 0) {
+        //printf("sample %d\n", val);
+        total_populated++;
+      }
+    }
+    avg = (total / total_populated) * 0.00048828125;
+    */
+
+    if (counter % 10 == 0) {
+      int i;
+      fftw_complex *in;
+      fftw_complex *in2;
+      fftw_complex *out;
+      fftw_plan plan_backward;
+      fftw_plan plan_forward;
+
+      int n = 200;
+
+      in = fftw_malloc ( sizeof ( fftw_complex ) * n );
+
+      for (i = 0; i < n; i++) {
+        int val = sampleBuf[0][i];
+        in[i][0] = val;
+        in[i][1] = 0;
+      }
+
+      /*
+        printf ( "\n" );
+        printf ( "  Input Data:\n" );
+        printf ( "\n" );
+
+        for ( i = 0; i < n; i++ )
+        {
+          printf ( "  %3d  %12f  %12f\n", i, in[i][0], in[i][1] );
+        }
+      */
+
+      out = fftw_malloc ( sizeof ( fftw_complex ) * n );
+
+      plan_forward = fftw_plan_dft_1d ( n, in, out, FFTW_FORWARD, FFTW_ESTIMATE );
+
+      fftw_execute ( plan_forward );
+
+      printf ( "\n" );
+      printf ( "  Output Data:\n" );
+      printf ( "\n" );
+
+      int num_freqs = 0;
+      avg = 0;
+      for ( i = 0; i < n; i++ )
+      {
+        int hz;
+        int val;
+        val = abs(out[i][0]) ^ 2;
+        hz = ((i * 256) / 100);
+        if (hz > 0 && hz < 45) {
+          avg += val;
+          num_freqs++;
+          //printf ( "%3d  %5d  %12f  %12f\n", i, hz, out[i][0], out[i][1] );
+          printf ( "%3d  %5d  %12d\n", i, hz, val );
+        }
+      }
+      avg = avg / num_freqs;
+      avg = avg * 0.00048828125;
+      /*
+       Oscope range: .1 - .5
+       0.00048828125
+      */
+    }
 
     gettimeofday(&t2, &tz);
     deltatime = (float)(t2.tv_sec - t1.tv_sec + (t2.tv_usec - t1.tv_usec) * 1e-6);
@@ -263,25 +349,22 @@ void serverDied(void)
  */
 void handleSample(int channel, int val)
 {
-    static int updateCounter = 0;
-    assert(channel == 0 || channel == 1);
-    if (!(val >= 0 && val < 1024)) {
-        printf("Got bad value: %d\n", val);
-        return;
-        //exit(0);
-    }
+  static int updateCounter = 0;
+  assert(channel == 0 || channel == 1);
+  if (!(val >= 0 && val < 1024)) {
+    printf("Got bad value: %d\n", val);
+    return;
+    //exit(0);
+  }
 
-    if (readSamples == VIEWWIDTH-1) {
-      memmove(&sampleBuf[channel][0], &sampleBuf[channel][1],  sizeof(int)*(VIEWWIDTH-1));
-    }
+  if (readSamples == VIEWWIDTH-1) {
+    memmove(&sampleBuf[channel][0], &sampleBuf[channel][1],  sizeof(int)*(VIEWWIDTH-1));
+  }
 
-    sampleBuf[channel][readSamples] = val;
-    if (readSamples < VIEWWIDTH-1 && channel == 1)
-        readSamples += 1;
-    if (updateCounter++ % UPDATEINTERVAL == 0) {
-        //gtk_widget_draw(onscreen, NULL);
-        printf("draw");
-    }
+  sampleBuf[channel][readSamples] = val;
+  if (readSamples < VIEWWIDTH-1 && channel == 1)
+    readSamples += 1;
+
 }
 
 void idleHandler(void)
@@ -293,7 +376,7 @@ void idleHandler(void)
     int devNum, packetCounter, channels, *samples;
 
     linePos = readline(sock_fd, lineBuf, sizeof(EDFPacket), &ib);
-    rprintf("Got line retval=<%d>, <%s>\n", linePos, lineBuf);
+    //rprintf("Got line retval=<%d>, <%s>\n", linePos, lineBuf);
 
     if (isEOF(sock_fd, &ib))
         exit(0);
@@ -315,7 +398,7 @@ void idleHandler(void)
         channels = vals[2];
         samples = vals + 3;
         for (i = 0; i < channels; ++i) {
-          rprintf("Sample #%d: %d\n", i, samples[i]);
+          //rprintf("Sample #%d: %d\n", i, samples[i]);
         }
     }
 //  rprintf("Got sample with %d channels: %d\n", channels, packetCounter);
@@ -532,7 +615,7 @@ int Init ( ESContext *esContext )
       "}                            \n";
 
   const char* filename;
-  filename = "/home/ubuntu/openeeg/opengl_c/LinuxX11/Chapter_2/Hello_Triangle/oscope.glsl";
+  filename = "/home/ubuntu/openeeg/cube/oscope.glsl";
 
   GLuint vertexShader;
   GLuint fragmentShader;
@@ -647,8 +730,11 @@ void Draw ( ESContext *esContext )
   // Set the sampler texture unit to 0
   glUniform1i ( userData->locIChannel0, 0 );
 
+  //avg = (rand() % 10 + 1) / 10.0;
+  printf("\n\navg %f", avg);
+
   // Set the sampler texture unit to 0
-  glUniform1f ( userData->locYOffset, 0.5 );
+  glUniform1f ( userData->locYOffset, avg );
 
   //printf("Diffms: %f", diffMs);
 

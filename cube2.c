@@ -64,17 +64,8 @@ const char *helpText =
 
 #define MINLINELENGTH 4
 #define DELIMS " \r\n"
-#define VIEWWIDTH 768
-#define VIEWHEIGHT 128
-#define TOPMARGIN 80
-#define MARGIN 160
+#define SAMPLESIZE 768
 
-#define DRAWINGAREAHEIGHT (TOPMARGIN + VIEWHEIGHT*2 + MARGIN)
-
-#define UPDATEINTERVAL 64
-
-static int sampleBuf[2][VIEWWIDTH];
-static int readSamples = 0;
 
 struct Options {
     char hostname[MAXLEN];
@@ -241,7 +232,7 @@ int main(int argc, char **argv)
     int total_populated;
     total = 0;
     total_populated = 0;
-    for (i = 0; i < VIEWWIDTH; i++) {
+    for (i = 0; i < SAMPLESIZE; i++) {
       int val = sampleBuf[0][i];
       total += val;
       if (val > 0) {
@@ -357,12 +348,18 @@ void handleSample(int channel, int val)
     //exit(0);
   }
 
-  if (readSamples == VIEWWIDTH-1) {
-    memmove(&sampleBuf[channel][0], &sampleBuf[channel][1],  sizeof(int)*(VIEWWIDTH-1));
+  /*
+   * Fill buffer from left to right until you reach the end.
+   *
+   * Once there, instead keep shuffling sample values left by one and filling in the last slot (SAMPLESIZE-1) 
+   */
+
+  if (readSamples == SAMPLESIZE-1) {
+    memmove(&sampleBuf[channel][0], &sampleBuf[channel][1],  sizeof(int)*(SAMPLESIZE-1));
   }
 
   sampleBuf[channel][readSamples] = val;
-  if (readSamples < VIEWWIDTH-1 && channel == 1)
+  if (readSamples < SAMPLESIZE-1 && channel == 1)
     readSamples += 1;
 
 }

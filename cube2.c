@@ -64,8 +64,8 @@ const char *helpText =
 
 #define MINLINELENGTH 4
 #define DELIMS " \r\n"
-#define SAMPLESIZE 768
-
+#define SAMPLESIZE 256
+#define INPUT_FREQ 256
 
 struct Options {
     char hostname[MAXLEN];
@@ -251,7 +251,7 @@ int main(int argc, char **argv)
       fftw_plan plan_backward;
       fftw_plan plan_forward;
 
-      int n = 200;
+      int n = SAMPLESIZE;
 
       in = fftw_malloc ( sizeof ( fftw_complex ) * n );
 
@@ -289,7 +289,7 @@ int main(int argc, char **argv)
         int hz;
         int val;
         val = abs(out[i][0]) ^ 2;
-        hz = ((i * 256) / 100);
+        hz = ((i * INPUT_FREQ) / 100);
         if (hz > 0 && hz < 45) {
           avg += val;
           num_freqs++;

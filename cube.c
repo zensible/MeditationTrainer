@@ -23,9 +23,20 @@
 #include <glib.h>
 
 #include <fftw3.h>
+#include <pthread.h>
 
 #include "monitor.h"
 #include "cube.h"
+
+typedef struct 
+{
+  float     avg; 
+} THRDATA;
+
+THRDATA threaddata;
+
+pthread_t callThd[1];
+pthread_mutex_t mutexsum;
 
 /*
  * Vars related to polling neuroserver
@@ -47,31 +58,7 @@ char EDFPacket[MAXHEADERLEN];
 GIOChannel *neuroserver;
 static int sampleBuf[2][SAMPLESIZE];
 static int readSamples = 0;
-float avg = 0.1;  // Coefficient to send to visualization
 
-struct Options {
-    char hostname[MAXLEN];
-    unsigned short port;
-    char filename[MAXLEN];
-    int eegNum;
-    int isFilenameSet;
-    int isLimittedTime;
-    double seconds;
-};
-
-typedef struct
-{
-  // Handle to a program object
-  GLuint programObject;
-  GLint locGlobalTime;
-  GLint locIChannel0;
-  GLfloat locYOffset;
-  struct timeval timeStart;
-
-   // Texture handle
-   GLuint textureId;
-
-} UserData;
 
 static struct OutputBuffer ob;
 struct InputBuffer ib;
@@ -80,8 +67,92 @@ int linePos = 0;
 
 struct Options opts;
 
+
+void *monitoreeg(void *arg) {
+  int counter = 0;
+  while (1)
+  {
+    counter++;
+    printf("counter %d", counter);
+    idleHandler();
+
+    if (counter % 50 == 0) {
+      int i;
+      fftw_complex *in;
+      fftw_complex *in2;
+      fftw_complex *out;
+      fftw_plan plan_backward;
+      fftw_plan plan_forward;
+
+      int n = 200;
+
+      in = fftw_malloc ( sizeof ( fftw_complex ) * n );
+
+      for (i = 0; i < n; i++) {
+        int val = sampleBuf[0][i];
+        in[i][0] = val;
+        in[i][1] = 0;
+      }
+
+      /*
+        printf ( "\n" );
+        printf ( "  Input Data:\n" );
+        printf ( "\n" );
+
+        for ( i = 0; i < n; i++ )
+        {
+          printf ( "  %3d  %12f  %12f\n", i, in[i][0], in[i][1] );
+        }
+      */
+
+      out = fftw_malloc ( sizeof ( fftw_complex ) * n );
+
+      plan_forward = fftw_plan_dft_1d ( n, in, out, FFTW_FORWARD, FFTW_ESTIMATE );
+
+      fftw_execute ( plan_forward );
+
+      //printf ( "\n" );
+      //printf ( "  Output Data:\n" );
+      //printf ( "\n" );
+
+      int num_freqs = 0;
+      float avg = 0;
+      for ( i = 0; i < n; i++ )
+      {
+        int hz;
+        int val;
+        val = abs(out[i][0]) ^ 2;
+        hz = ((i * 256) / 100);
+        if (hz > 0 && hz < 45) {
+          avg += val;
+          num_freqs++;
+          //printf ( "%3d  %5d  %12f  %12f\n", i, hz, out[i][0], out[i][1] );
+          printf ( "%3d  %5d  %12d\n", i, hz, val );
+        }
+      }
+      avg = avg / num_freqs;
+      avg = avg * 0.00048828125;
+
+      /*
+      if (avg > 0.5) { avg = 0.5; }
+      if (avg < 0.05) { avg = 0.05; }
+      */
+
+      pthread_mutex_lock (&mutexsum);
+      threaddata.avg = avg;
+      pthread_mutex_unlock (&mutexsum);
+      /*
+       Oscope range: .1 - .5
+       0.00048828125
+      */
+    }
+  }
+}
+
+
 int main(int argc, char **argv)
 {
+  threaddata.avg = 0.1;
 
   // Init eeg client
   char cmdbuf[80];
@@ -182,111 +253,51 @@ int main(int argc, char **argv)
 
   gettimeofday ( &t1 , &tz );
 
+  pthread_attr_t attr;
+  pthread_mutex_init(&mutexsum, NULL);
+  pthread_attr_init(&attr);
+  pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
-  pid_t  child_pid = -1;
-  signal(SIGALRM,(void (*)(int))kill_child);
+  pthread_create(&callThd[0], &attr, monitoreeg, (void *)0);
 
-  child_pid = fork();
   // Child process 1: show visualization
-  if (child_pid > 0) {
-    while (userInterrupt(&esContext) == GL_FALSE)
+  while (userInterrupt(&esContext) == GL_FALSE)
+  {
+    /*
+    monitoreeg("");
+    monitoreeg("");
+    monitoreeg("");
+    monitoreeg("");
+    */
+
+    gettimeofday(&t2, &tz);
+    deltatime = (float)(t2.tv_sec - t1.tv_sec + (t2.tv_usec - t1.tv_usec) * 1e-6);
+    t1 = t2;
+
+    if (esContext.updateFunc != NULL)
+      esContext.updateFunc(&esContext, deltatime);
+    if (esContext.drawFunc != NULL)
+      esContext.drawFunc(&esContext);
+
+    eglSwapBuffers(esContext.eglDisplay, esContext.eglSurface);
+
+    totaltime += deltatime;
+    frames++;
+    if (totaltime >  2.0f)
     {
-      gettimeofday(&t2, &tz);
-      deltatime = (float)(t2.tv_sec - t1.tv_sec + (t2.tv_usec - t1.tv_usec) * 1e-6);
-      t1 = t2;
-
-      if (esContext.updateFunc != NULL)
-        esContext.updateFunc(&esContext, deltatime);
-      if (esContext.drawFunc != NULL)
-        esContext.drawFunc(&esContext);
-
-      eglSwapBuffers(esContext.eglDisplay, esContext.eglSurface);
-
-      totaltime += deltatime;
-      frames++;
-      if (totaltime >  2.0f)
-      {
-        printf("==== FPS=%3.4f %4d frames rendered in %1.4f seconds\n", frames/totaltime, frames, totaltime);
-        totaltime -= 2.0f;
-        frames = 0;
-      }
-    }
-    wait(NULL);
-  }
-  else if (child_pid == 0) {  // Parent process: read eeg data
-    int counter = 0;
-    while (1)
-    {
-      counter++;
-      printf("counter %d", counter);
-      idleHandler();
-
-      if (counter % 50 == 0) {
-        printf("GOOOO");
-        int i;
-        fftw_complex *in;
-        fftw_complex *in2;
-        fftw_complex *out;
-        fftw_plan plan_backward;
-        fftw_plan plan_forward;
-
-        int n = 200;
-
-        in = fftw_malloc ( sizeof ( fftw_complex ) * n );
-
-        for (i = 0; i < n; i++) {
-          int val = sampleBuf[0][i];
-          in[i][0] = val;
-          in[i][1] = 0;
-        }
-
-        /*
-          printf ( "\n" );
-          printf ( "  Input Data:\n" );
-          printf ( "\n" );
-
-          for ( i = 0; i < n; i++ )
-          {
-            printf ( "  %3d  %12f  %12f\n", i, in[i][0], in[i][1] );
-          }
-        */
-
-        out = fftw_malloc ( sizeof ( fftw_complex ) * n );
-
-        plan_forward = fftw_plan_dft_1d ( n, in, out, FFTW_FORWARD, FFTW_ESTIMATE );
-
-        fftw_execute ( plan_forward );
-
-        printf ( "\n" );
-        printf ( "  Output Data:\n" );
-        printf ( "\n" );
-
-        int num_freqs = 0;
-        avg = 0;
-        for ( i = 0; i < n; i++ )
-        {
-          int hz;
-          int val;
-          val = abs(out[i][0]) ^ 2;
-          hz = ((i * 256) / 100);
-          if (hz > 0 && hz < 45) {
-            avg += val;
-            num_freqs++;
-            //printf ( "%3d  %5d  %12f  %12f\n", i, hz, out[i][0], out[i][1] );
-            printf ( "%3d  %5d  %12d\n", i, hz, val );
-          }
-        }
-        avg = avg / num_freqs;
-        avg = avg * 0.00048828125;
-        /*
-         Oscope range: .1 - .5
-         0.00048828125
-        */
-      }
+      printf("==== FPS=%3.4f %4d frames rendered in %1.4f seconds\n", frames/totaltime, frames, totaltime);
+      totaltime -= 2.0f;
+      frames = 0;
     }
   }
 
+  int status = pthread_kill( callThd[0], SIGKILL);                                     
+  if ( status <  0)
+    perror("pthread_kill failed");
 
+  pthread_attr_destroy(&attr);
+  pthread_mutex_destroy(&mutexsum);
+  pthread_exit(NULL);
 }
 
 void kill_child(int child_pid)
@@ -529,7 +540,7 @@ int Init ( ESContext *esContext )
 
   char path_fragment[1024];
   strcpy(path_fragment, cwd);
-  strcat(path_fragment, "/oscope.glsl");
+  strcat(path_fragment, "/fire.glsl");
 
   // Load the vertex/fragment shaders
   vertexShader = LoadShaderDisk ( GL_VERTEX_SHADER, path_vertex );
@@ -640,10 +651,10 @@ void Draw ( ESContext *esContext )
   glUniform1i ( userData->locIChannel0, 0 );
 
   //avg = (rand() % 10 + 1) / 10.0;
-  printf("\n\navg %f", avg);
+  printf("\n\navg %f", threaddata.avg);
 
   // Set the sampler texture unit to 0
-  glUniform1f ( userData->locYOffset, avg );
+  glUniform1f ( userData->locYOffset, threaddata.avg );
 
   //printf("Diffms: %f", diffMs);
 

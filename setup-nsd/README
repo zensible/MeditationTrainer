@@ -1,0 +1,38 @@
+NeuroServer
+
+A program to translate between TCP network messages and serial packets for
+the modular EEG device.
+
+
+BUILDING
+--------
+
+See "doc/devguide.txt".  Briefly:
+
+  aclocal && autoconf && automake -a
+  ./configure
+  make
+
+
+RUNNING
+-------
+
+For example:
+
+  src/nsd &
+  src/modeegdriver &
+
+Now start up a EEG display client to connect to localhost port 8336.
+Alternatively, for testing, connect using telnet:
+
+  telnet localhost 8336
+
+For a simple test, type these commands (assuming modeegdriver has
+already started up and connected successfully):
+
+  hello
+  display
+  getheader 0
+  watch 0
+
+See "doc/protocol.txt" for more details.

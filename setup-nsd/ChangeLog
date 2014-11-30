@@ -1,0 +1,6 @@
+2004-01-06  Rudi Cilibrasi  <cilibrar@ofb.net>
+
+	I added 3-digit response codes similar to HTTP for TCP side.
+
+	* src/neurod.c  (sendResponse*)
+

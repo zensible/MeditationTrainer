@@ -135,10 +135,11 @@ void eatCharacter(unsigned char c)
 			
 		failCount = 0;
 	
-//		printf("Got %s packet with %d values: ", pstr, ns);
-//		for (i = 0; i < ns; ++i)
-//			printf("%d ", vals[i]);
-//		printf("\n");
+		printf("Got %s packet with %d values: ", pstr, ns);
+		int i;
+		for (i = 0; i < ns; ++i)
+			printf("%d ", vals[i]);
+		printf("\n");
 	}
 	else {
 		failCount += 1;

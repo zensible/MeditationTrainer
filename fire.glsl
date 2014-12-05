@@ -1,4 +1,4 @@
-#define ITERATIONS 12
+#define ITERATIONS 9 // 12
 #define SPEED 10.0
 #define DISPLACEMENT 0.05
 #define TIGHTNESS 10.0
@@ -11,7 +11,7 @@ precision lowp float;
 uniform float yOffset;
 uniform float iGlobalTime;
 uniform sampler2D iChannel0;
-const vec3 iResolution = vec3(512, 512, 1.0);
+const vec3 iResolution = vec3(1920, 1200, 1.0);
 
 float shape(in vec2 pos) // a blob shape to distort
 {

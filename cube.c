@@ -3,8 +3,10 @@
 #include <string.h>
 #include <stdlib.h>
 
+/*
 #include <GLES2/gl2.h>
 #include <EGL/egl.h>
+*/
 
 #ifdef RPI_NO_X
 #include  "bcm_host.h"
@@ -13,6 +15,8 @@
 #include  <X11/Xatom.h>
 #include  <X11/Xutil.h>
 #endif
+
+#include "monitor.h"
 
 #include <openedf.h>
 #include <sys/time.h>
@@ -25,8 +29,8 @@
 #include <fftw3.h>
 #include <pthread.h>
 
-#include "monitor.h"
 #include "cube.h"
+#include "esUtil.h"
 
 typedef struct 
 {
@@ -73,7 +77,7 @@ void *monitoreeg(void *arg) {
   while (1)
   {
     counter++;
-    printf("counter %d", counter);
+    //printf("counter %d", counter);
     idleHandler();
 
     if (counter % 50 == 0) {
@@ -127,7 +131,7 @@ void *monitoreeg(void *arg) {
           avg += val;
           num_freqs++;
           //printf ( "%3d  %5d  %12f  %12f\n", i, hz, out[i][0], out[i][1] );
-          printf ( "%3d  %5d  %12d\n", i, hz, val );
+          //printf ( "%3d  %5d  %12d\n", i, hz, val );
         }
       }
       avg = avg / num_freqs;
@@ -236,7 +240,7 @@ int main(int argc, char **argv)
   esInitContext ( &esContext );
   esContext.userData = &userData;
 
-  esCreateWindow ( &esContext, "Meditation Cube", 512, 512, ES_WINDOW_RGB );
+  esCreateWindow ( &esContext, "Meditation Cube", 1920, 1200, ES_WINDOW_RGB );
 
   rprintf("About to init\n");
 
@@ -596,13 +600,18 @@ int Init ( ESContext *esContext )
   gettimeofday(&userData->timeStart, NULL);
 
   //userData->textureId = load_texture_TGA( "/home/ubuntu/openeeg/opengl_c/LinuxX11/Chapter_10/MultiTexture/tex16.tga", NULL, NULL, GL_REPEAT, GL_REPEAT );
-  userData->textureId = LoadTexture("/home/ubuntu/openeeg/opengl_c/LinuxX11/Chapter_2/Hello_Triangle/tex16.tga" );
+
+  char path_tex16[1024];
+  strcpy(path_tex16, cwd);
+  strcat(path_tex16, "/tex16.tga");
+
+  userData->textureId = LoadTexture( path_tex16 );
 
 
   if ( userData->textureId == 0 )
     return FALSE;
 
-  glClearColor ( 0.0f, 1.0f, 0.0f, 0.0f );
+  glClearColor ( 0.0f, 0.0f, 0.0f, 1.0f );
   return GL_TRUE;
 }
 
@@ -651,7 +660,7 @@ void Draw ( ESContext *esContext )
   glUniform1i ( userData->locIChannel0, 0 );
 
   //avg = (rand() % 10 + 1) / 10.0;
-  printf("\n\navg %f", threaddata.avg);
+  printf("\navg %f", threaddata.avg);
 
   // Set the sampler texture unit to 0
   glUniform1f ( userData->locYOffset, threaddata.avg );

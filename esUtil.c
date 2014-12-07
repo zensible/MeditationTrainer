@@ -35,6 +35,8 @@
 #include  <X11/Xutil.h>
 #endif
 
+#include "key.h"
+
 #ifndef RPI_NO_X
 // X11 related local variables
 static Display *x_display = NULL;
@@ -199,7 +201,17 @@ GLboolean userInterrupt(ESContext *esContext)
     
     // Ctrl-C for now to stop
     
-    return GL_FALSE;
+  int key;
+  if (keyPressed(key)) {
+    rprintf("==== KEY PRESSED === %d", key);
+
+    if (esContext->keyFunc != NULL)
+        esContext->keyFunc(esContext, text, 0, 0);
+
+    return GL_TRUE;
+  }
+
+  return GL_FALSE;
 }
 #else
 ///

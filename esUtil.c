@@ -298,10 +298,13 @@ GLboolean userInterrupt(ESContext *esContext)
   if (keyPressed(&key)) {
     rprintf("==== KEY PRESSED === %d", key);
 
+    if (key == 27) {
+      return GL_TRUE;
+    }
+
     if (esContext->keyFunc != NULL)
         esContext->keyFunc(esContext, key, 0, 0);
 
-    return GL_TRUE;
   }
 
   return GL_FALSE;

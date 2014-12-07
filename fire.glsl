@@ -11,7 +11,7 @@ precision lowp float;
 uniform float yOffset;
 uniform float iGlobalTime;
 uniform sampler2D iChannel0;
-const vec3 iResolution = vec3(1920, 1200, 1.0);
+uniform vec2 iResolution;
 
 float shape(in vec2 pos) // a blob shape to distort
 {

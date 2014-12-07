@@ -35,6 +35,7 @@
 typedef struct 
 {
   float     avg; 
+  int sampleBuf[2][SAMPLESIZE];
 } THRDATA;
 
 THRDATA threaddata;
@@ -60,7 +61,7 @@ const char *helpText =
 sock_t sock_fd;
 char EDFPacket[MAXHEADERLEN];
 GIOChannel *neuroserver;
-static int sampleBuf[2][SAMPLESIZE];
+//static int sampleBuf[2][SAMPLESIZE];
 static int readSamples = 0;
 
 
@@ -71,7 +72,9 @@ int linePos = 0;
 
 struct Options opts;
 
-
+/*
+ * Thread: monitors eeg, calculates 'avg' for use in visualizations
+ */
 void *monitoreeg(void *arg) {
   int counter = 0;
   while (1)
@@ -88,12 +91,10 @@ void *monitoreeg(void *arg) {
       fftw_plan plan_backward;
       fftw_plan plan_forward;
 
-      int n = 200;
+      in = fftw_malloc ( sizeof ( fftw_complex ) * SAMPLESIZE );
 
-      in = fftw_malloc ( sizeof ( fftw_complex ) * n );
-
-      for (i = 0; i < n; i++) {
-        int val = sampleBuf[0][i];
+      for (i = 0; i < SAMPLESIZE; i++) {
+        int val = threaddata.sampleBuf[0][i];
         in[i][0] = val;
         in[i][1] = 0;
       }
@@ -109,9 +110,9 @@ void *monitoreeg(void *arg) {
         }
       */
 
-      out = fftw_malloc ( sizeof ( fftw_complex ) * n );
+      out = fftw_malloc ( sizeof ( fftw_complex ) * SAMPLESIZE );
 
-      plan_forward = fftw_plan_dft_1d ( n, in, out, FFTW_FORWARD, FFTW_ESTIMATE );
+      plan_forward = fftw_plan_dft_1d ( SAMPLESIZE, in, out, FFTW_FORWARD, FFTW_ESTIMATE );
 
       fftw_execute ( plan_forward );
 
@@ -121,12 +122,12 @@ void *monitoreeg(void *arg) {
 
       int num_freqs = 0;
       float avg = 0;
-      for ( i = 0; i < n; i++ )
+      for ( i = 0; i < SAMPLESIZE; i++ )
       {
         int hz;
         int val;
         val = abs(out[i][0]) ^ 2;
-        hz = ((i * 256) / 100);
+        hz = ((i * SAMPLESIZE) / 100);
         if (hz > 0 && hz < 45) {
           avg += val;
           num_freqs++;
@@ -135,7 +136,8 @@ void *monitoreeg(void *arg) {
         }
       }
       avg = avg / num_freqs;
-      avg = avg * 0.00048828125;
+      printf("== AVG %f", avg);
+      avg = avg * 0.000390625 + 0.005;
 
       /*
       if (avg > 0.5) { avg = 0.5; }
@@ -158,11 +160,16 @@ int main(int argc, char **argv)
 {
   threaddata.avg = 0.1;
 
+  int i;
+  for (i = 0; i < SAMPLESIZE; i++) {
+    threaddata.sampleBuf[0][i] = 0;
+    threaddata.sampleBuf[1][i] = 0;
+  }
+
   // Init eeg client
   char cmdbuf[80];
   int EDFLen = MAXHEADERLEN;
   struct EDFDecodedConfig cfg;
-  int i;
   double t0;
   int retval;
   strcpy(opts.hostname, DEFAULTHOST);
@@ -240,7 +247,7 @@ int main(int argc, char **argv)
   esInitContext ( &esContext );
   esContext.userData = &userData;
 
-  esCreateWindow ( &esContext, "Meditation Cube", 1920, 1200, ES_WINDOW_RGB );
+  esCreateWindow ( &esContext, "Meditation Cube", SCREENWID, SCREENHEI, ES_WINDOW_RGB );
 
   rprintf("About to init\n");
 
@@ -335,10 +342,10 @@ void handleSample(int channel, int val)
    */
 
   if (readSamples == SAMPLESIZE-1) {
-    memmove(&sampleBuf[channel][0], &sampleBuf[channel][1],  sizeof(int)*(SAMPLESIZE-1));
+    memmove(&threaddata.sampleBuf[channel][0], &threaddata.sampleBuf[channel][1],  sizeof(int)*(SAMPLESIZE-1));
   }
 
-  sampleBuf[channel][readSamples] = val;
+  threaddata.sampleBuf[channel][readSamples] = val;
   if (readSamples < SAMPLESIZE-1 && channel == 1)
     readSamples += 1;
 
@@ -544,7 +551,7 @@ int Init ( ESContext *esContext )
 
   char path_fragment[1024];
   strcpy(path_fragment, cwd);
-  strcat(path_fragment, "/fire.glsl");
+  strcat(path_fragment, "/calibrate.glsl");
 
   // Load the vertex/fragment shaders
   vertexShader = LoadShaderDisk ( GL_VERTEX_SHADER, path_vertex );
@@ -596,6 +603,7 @@ int Init ( ESContext *esContext )
   userData->locGlobalTime = glGetUniformLocation( userData->programObject, "iGlobalTime" );
   userData->locIChannel0 = glGetUniformLocation( userData->programObject, "iChannel0" );
   userData->locYOffset = glGetUniformLocation( userData->programObject, "yOffset" );
+  userData->locIResolution = glGetUniformLocation( userData->programObject, "iResolution");
 
   gettimeofday(&userData->timeStart, NULL);
 
@@ -615,19 +623,17 @@ int Init ( ESContext *esContext )
   return GL_TRUE;
 }
 
+int mode = 0;
+
+float CALIB_X_SCALE = 2.0;
+
 ///
 // Draw a triangle using the shader pair created in Init()
 //
 void Draw ( ESContext *esContext )
 {
   UserData *userData = esContext->userData;
-  GLfloat vVertices1[] = { -1.0f, -1.0f, 0.0f, 
-                           -1.0f, 1.0f, 0.0f,
-                           1.0f, 1.0f, 0.0f,
-                           1.0f, 1.0f, 0.0f,
-                           1.0f, -1.0f, 0.0f,
-                           -1.0f, -1.0f, 0.0f,
-                          };
+
 
   // Set the viewport
   glViewport ( 0, 0, esContext->width, esContext->height );
@@ -638,34 +644,71 @@ void Draw ( ESContext *esContext )
   // Use the program object
   glUseProgram ( userData->programObject );
 
-  // Load the vertex data
-  glVertexAttribPointer ( 0, 3, GL_FLOAT, GL_FALSE, 0, vVertices1 );
-  glEnableVertexAttribArray ( 0 );
+  if (mode == 0) {
+    GLfloat buffer[256*3];
+    int i;
+    int r;
+    for (i = 0; i < SAMPLESIZE; i++) {
+      if (i % 2 == 0) {
+        printf("x: ");
+        buffer[i] = i * 0.0078125 - 1;
+      } else {
+        printf("y: ");
+        if (threaddata.sampleBuf[0][i] > 1024) {
+          threaddata.sampleBuf[0][i] = 1024;
+        }
+        GLfloat val = ((float) threaddata.sampleBuf[0][i]) * 0.001953125 - 1;
+        buffer[i] = val * CALIB_X_SCALE;
+      }
+      printf(" #%d: %f\t", i, buffer[i]);
+      printf("\n");
+    }
 
-  struct timeval timeNow, timeResult;
-  gettimeofday(&timeNow, NULL);
-  timersub(&timeNow, &userData->timeStart, &timeResult);
-  float diffMs = (float)(timeResult.tv_sec + (timeResult.tv_usec / 1000000.0));
+     // Load the vertex data
+     glVertexAttribPointer ( 0, 2, GL_FLOAT, GL_FALSE, 0, buffer );
+     glEnableVertexAttribArray ( 0 );
 
-  //printf("Time elapsed: %ld.%06ld %f\n", (long int)timeResult.tv_sec, (long int)timeResult.tv_usec, diffMs);
+     glDrawArrays ( GL_LINE_STRIP, 0, 128 );    
+  } else {
+    // Completely cover the screen
+    GLfloat vVertices1[] = { -1.0f, -1.0f, 0.0f, 
+                             -1.0f, 1.0f, 0.0f,
+                             1.0f, 1.0f, 0.0f,
+                             1.0f, 1.0f, 0.0f,
+                             1.0f, -1.0f, 0.0f,
+                             -1.0f, -1.0f, 0.0f,
+                            };
 
-   // Bind the texture
-  glActiveTexture ( GL_TEXTURE0 );
-  glBindTexture ( GL_TEXTURE_2D, userData->textureId );
+    // Load the vertex data
+    glVertexAttribPointer ( 0, 3, GL_FLOAT, GL_FALSE, 0, vVertices1 );
+    glEnableVertexAttribArray ( 0 );
 
-  // Load the MVP matrix
-  glUniform1f( userData->locGlobalTime, diffMs );
+    struct timeval timeNow, timeResult;
+    gettimeofday(&timeNow, NULL);
+    timersub(&timeNow, &userData->timeStart, &timeResult);
+    float diffMs = (float)(timeResult.tv_sec + (timeResult.tv_usec / 1000000.0));
 
-  // Set the sampler texture unit to 0
-  glUniform1i ( userData->locIChannel0, 0 );
+    //printf("Time elapsed: %ld.%06ld %f\n", (long int)timeResult.tv_sec, (long int)timeResult.tv_usec, diffMs);
 
-  //avg = (rand() % 10 + 1) / 10.0;
-  printf("\navg %f", threaddata.avg);
+     // Bind the texture
+    glActiveTexture ( GL_TEXTURE0 );
+    glBindTexture ( GL_TEXTURE_2D, userData->textureId );
 
-  // Set the sampler texture unit to 0
-  glUniform1f ( userData->locYOffset, threaddata.avg );
+    // Load the MVP matrix
+    glUniform1f( userData->locGlobalTime, diffMs );
 
-  //printf("Diffms: %f", diffMs);
+    // Set the sampler texture unit to 0
+    glUniform1i ( userData->locIChannel0, 0 );
 
-  glDrawArrays ( GL_TRIANGLE_STRIP, 0, 18 );
+    //avg = (rand() % 10 + 1) / 10.0;
+    printf("\navg %f", threaddata.avg);
+
+    // Set the sampler texture unit to 0
+    glUniform1f ( userData->locYOffset, threaddata.avg );
+
+    glUniform2f( userData->locIResolution, SCREENWID, SCREENHEI );
+
+    glDrawArrays ( GL_TRIANGLE_STRIP, 0, 18 );    
+  }
+
 }

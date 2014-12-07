@@ -3,7 +3,7 @@ precision mediump float;
 uniform float iGlobalTime;
 uniform sampler2D iChannel0;
 uniform float yOffset;
-const vec3 iResolution = vec3(256, 256, 1.0);
+uniform vec2 iResolution;
 
 void main(void)
 {

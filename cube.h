@@ -4,7 +4,7 @@
 
 #define MINLINELENGTH 4
 #define DELIMS " \r\n"
-#define SAMPLESIZE 768
+#define SAMPLESIZE 256
 
 // eeg client-related prototypes
 void idleHandler(void);
@@ -37,13 +37,26 @@ typedef struct
   GLuint programObject;
   GLint locGlobalTime;
   GLint locIChannel0;
-  GLfloat locYOffset;
+  GLint locYOffset;
+  GLint locIResolution;
   struct timeval timeStart;
 
    // Texture handle
    GLuint textureId;
 
 } UserData;
+
+#ifdef RPI_NO_X
+
+#define SCREENWID 1920
+#define SCREENHEI 1200
+
+#else
+
+#define SCREENWID 640
+#define SCREENHEI 360
+
+#endif
 
 
 #endif // CUBE_H

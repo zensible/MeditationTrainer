@@ -36,10 +36,17 @@ typedef struct
   // Handle to a program object
   GLuint programObjectCalib;
   GLuint programShader;
-  GLint locGlobalTime;
-  GLint locIChannel0;
-  GLint locYOffset;
-  GLint locIResolution;
+
+  GLint locCalibGlobalTime;
+  GLint locCalibIChannel0;
+  GLint locCalibYOffset;
+  GLint locCalibIResolution;
+
+  GLint locShaderGlobalTime;
+  GLint locShaderIChannel0;
+  GLint locShaderYOffset;
+  GLint locShaderIResolution;
+
   struct timeval timeStart;
 
    // Texture handle

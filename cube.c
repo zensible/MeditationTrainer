@@ -356,7 +356,6 @@ void handleSample(int channel, int val)
   if (!(val >= 0 && val < 1024)) {
     printf("Got bad value: %d\n", val);
     return;
-    //exit(0);
   }
 
   /*
@@ -372,7 +371,6 @@ void handleSample(int channel, int val)
   threaddata.sampleBuf[channel][readSamples] = val;
   if (readSamples < SAMPLESIZE-1 && channel == 1)
     readSamples += 1;
-
 }
 
 void idleHandler(void)
@@ -626,7 +624,7 @@ GLuint initShader() {
 
   char path_fragment[1024];
   strcpy(path_fragment, cwd);
-  strcat(path_fragment, "/fire.glsl");
+  strcat(path_fragment, "/oscope.glsl");
 
   // Load the vertex/fragment shaders
   vertexShader = LoadShaderDisk ( GL_VERTEX_SHADER, path_vertex );
@@ -694,10 +692,15 @@ int Init ( ESContext *esContext )
   userData->programShader = initShader();
 
   // Get the uniform locations
-  userData->locGlobalTime = glGetUniformLocation( userData->programObjectCalib, "iGlobalTime" );
-  userData->locIChannel0 = glGetUniformLocation( userData->programObjectCalib, "iChannel0" );
-  userData->locYOffset = glGetUniformLocation( userData->programObjectCalib, "yOffset" );
-  userData->locIResolution = glGetUniformLocation( userData->programObjectCalib, "iResolution");
+  userData->locCalibGlobalTime = glGetUniformLocation( userData->programObjectCalib, "iGlobalTime" );
+  userData->locCalibIChannel0 = glGetUniformLocation( userData->programObjectCalib, "iChannel0" );
+  userData->locCalibYOffset = glGetUniformLocation( userData->programObjectCalib, "yOffset" );
+  userData->locCalibIResolution = glGetUniformLocation( userData->programObjectCalib, "iResolution");
+
+  userData->locShaderGlobalTime = glGetUniformLocation( userData->programShader, "iGlobalTime" );
+  userData->locShaderIChannel0 = glGetUniformLocation( userData->programShader, "iChannel0" );
+  userData->locShaderYOffset = glGetUniformLocation( userData->programShader, "yOffset" );
+  userData->locShaderIResolution = glGetUniformLocation( userData->programShader, "iResolution");
 
   gettimeofday(&userData->timeStart, NULL);
 
@@ -748,6 +751,11 @@ void Draw ( ESContext *esContext )
         if (threaddata.sampleBuf[0][i] > 1024) {
           threaddata.sampleBuf[0][i] = 1024;
         }
+        /*
+        if (i > 0 && abs(threaddata.sampleBuf[0][i] - threaddata.sampleBuf[0][i - i]) > 300) {
+          threaddata.sampleBuf[0][i] = threaddata.sampleBuf[0][i - i];
+        }
+        */
         GLfloat val = ((float) threaddata.sampleBuf[0][i]) * 0.001953125 - 1;
         buffer[i] = val * CALIB_X_SCALE;
       }
@@ -787,18 +795,18 @@ void Draw ( ESContext *esContext )
     glBindTexture ( GL_TEXTURE_2D, userData->textureId );
 
     // Load the MVP matrix
-    glUniform1f( userData->locGlobalTime, diffMs );
+    glUniform1f( userData->locShaderGlobalTime, diffMs );
 
     // Set the sampler texture unit to 0
-    glUniform1i ( userData->locIChannel0, 0 );
+    glUniform1i ( userData->locShaderIChannel0, 0 );
 
     //avg = (rand() % 10 + 1) / 10.0;
     printf("\navg %f", threaddata.avg);
 
     // Set the sampler texture unit to 0
-    glUniform1f ( userData->locYOffset, threaddata.avg );
+    glUniform1f ( userData->locShaderYOffset, threaddata.avg );
 
-    glUniform2f( userData->locIResolution, SCREENWID, SCREENHEI );
+    glUniform2f( userData->locShaderIResolution, SCREENWID, SCREENHEI );
 
     glDrawArrays ( GL_TRIANGLE_STRIP, 0, 18 );    
   }

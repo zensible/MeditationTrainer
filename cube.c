@@ -72,6 +72,10 @@ int linePos = 0;
 
 struct Options opts;
 
+int mode = 0;
+
+float CALIB_X_SCALE = 2.0;
+
 /*
  * Thread: monitors eeg, calculates 'avg' for use in visualizations
  */
@@ -155,6 +159,32 @@ void *monitoreeg(void *arg) {
   }
 }
 
+void OnKey ( ESContext *esContext, unsigned char key, int x, int y)
+{
+  rprintf("key %d", key);
+  switch ( key )
+  {
+    case 015:  // enter key
+      mode += 1;
+      if (mode >= NUM_MODES) {
+        mode = 0;
+      }
+      rprintf( "\nMODE: %d\n", mode );
+      break;
+    case 'm':
+      rprintf( "Saw an 'm'\n" );
+      break;
+    case 'a':
+      rprintf( "Saw an 'a'\n" );
+      break;
+    case '1':
+      rprintf( "Saw a '1'\n" );
+      break;
+    case 033: // ASCII Escape Key
+      exit( 0 );
+      break;
+  }
+}
 
 int main(int argc, char **argv)
 {
@@ -255,6 +285,7 @@ int main(int argc, char **argv)
      return 0;
 
   esRegisterDrawFunc ( &esContext, Draw );
+  esRegisterKeyFunc( &esContext, OnKey );
 
   struct timeval t1, t2;
   struct timezone tz;
@@ -274,13 +305,6 @@ int main(int argc, char **argv)
   // Child process 1: show visualization
   while (userInterrupt(&esContext) == GL_FALSE)
   {
-    /*
-    monitoreeg("");
-    monitoreeg("");
-    monitoreeg("");
-    monitoreeg("");
-    */
-
     gettimeofday(&t2, &tz);
     deltatime = (float)(t2.tv_sec - t1.tv_sec + (t2.tv_usec - t1.tv_usec) * 1e-6);
     t1 = t2;
@@ -525,20 +549,9 @@ char* file_read(const char* filename)
   return content;
 }
 
-///
-// Initialize the shader and program object
-//
-int Init ( ESContext *esContext )
-{
-  rprintf("INIT.\n");
-
-  esContext->userData = malloc(sizeof(UserData));
-
-  UserData *userData = esContext->userData;
-
+GLuint initCalibration() {
   GLuint vertexShader;
   GLuint fragmentShader;
-  GLuint programObject;
   GLint linked;
 
   char cwd[1024];
@@ -557,7 +570,8 @@ int Init ( ESContext *esContext )
   vertexShader = LoadShaderDisk ( GL_VERTEX_SHADER, path_vertex );
   fragmentShader = LoadShaderDisk ( GL_FRAGMENT_SHADER, path_fragment );
 
-  // Create the program object
+  GLuint programObject;
+
   programObject = glCreateProgram ( );
    
   if ( programObject == 0 )
@@ -574,8 +588,6 @@ int Init ( ESContext *esContext )
 
   // Check the link status
   glGetProgramiv ( programObject, GL_LINK_STATUS, &linked );
-
-  srand(time(NULL));
 
   if ( !linked ) 
   {
@@ -596,14 +608,96 @@ int Init ( ESContext *esContext )
      return GL_FALSE;
   }
 
+  return programObject;
+}
+
+GLuint initShader() {
+  GLuint vertexShader;
+  GLuint fragmentShader;
+  GLint linked;
+
+  char cwd[1024];
+  if (getcwd(cwd, sizeof(cwd)) == NULL)
+    perror("getcwd() error");
+
+  char path_vertex[1024];
+  strcpy(path_vertex, cwd);
+  strcat(path_vertex, "/vertex.glsl");
+
+  char path_fragment[1024];
+  strcpy(path_fragment, cwd);
+  strcat(path_fragment, "/fire.glsl");
+
+  // Load the vertex/fragment shaders
+  vertexShader = LoadShaderDisk ( GL_VERTEX_SHADER, path_vertex );
+  fragmentShader = LoadShaderDisk ( GL_FRAGMENT_SHADER, path_fragment );
+
+  GLuint programObject;
+
+  programObject = glCreateProgram ( );
+   
+  if ( programObject == 0 )
+     return 0;
+
+  glAttachShader ( programObject, vertexShader );
+  glAttachShader ( programObject, fragmentShader );
+
+  // Bind vPosition to attribute 0   
+  glBindAttribLocation ( programObject, 0, "vPosition" );
+
+  // Link the program
+  glLinkProgram ( programObject );
+
+  // Check the link status
+  glGetProgramiv ( programObject, GL_LINK_STATUS, &linked );
+
+  if ( !linked ) 
+  {
+     GLint infoLen = 0;
+
+     glGetProgramiv ( programObject, GL_INFO_LOG_LENGTH, &infoLen );
+      
+     if ( infoLen > 1 )
+     {
+        char* infoLog = malloc (sizeof(char) * infoLen );
+        glGetProgramInfoLog ( programObject, infoLen, NULL, infoLog );
+        esLogMessage ( "Error linking program:\n%s\n", infoLog );            
+        
+        free ( infoLog );
+     }
+
+     glDeleteProgram ( programObject );
+     return GL_FALSE;
+  }
+
+  return programObject;
+}
+
+///
+// Initialize the shader and program object
+//
+int Init ( ESContext *esContext )
+{
+  rprintf("INIT.\n");
+  srand(time(NULL));
+
+  esContext->userData = malloc(sizeof(UserData));
+
+  UserData *userData = esContext->userData;
+
+  char cwd[1024];
+  if (getcwd(cwd, sizeof(cwd)) == NULL)
+    perror("getcwd() error");
+
   // Store the program object
-  userData->programObject = programObject;
+  userData->programObjectCalib = initCalibration();
+  userData->programShader = initShader();
 
   // Get the uniform locations
-  userData->locGlobalTime = glGetUniformLocation( userData->programObject, "iGlobalTime" );
-  userData->locIChannel0 = glGetUniformLocation( userData->programObject, "iChannel0" );
-  userData->locYOffset = glGetUniformLocation( userData->programObject, "yOffset" );
-  userData->locIResolution = glGetUniformLocation( userData->programObject, "iResolution");
+  userData->locGlobalTime = glGetUniformLocation( userData->programObjectCalib, "iGlobalTime" );
+  userData->locIChannel0 = glGetUniformLocation( userData->programObjectCalib, "iChannel0" );
+  userData->locYOffset = glGetUniformLocation( userData->programObjectCalib, "yOffset" );
+  userData->locIResolution = glGetUniformLocation( userData->programObjectCalib, "iResolution");
 
   gettimeofday(&userData->timeStart, NULL);
 
@@ -623,9 +717,6 @@ int Init ( ESContext *esContext )
   return GL_TRUE;
 }
 
-int mode = 0;
-
-float CALIB_X_SCALE = 2.0;
 
 ///
 // Draw a triangle using the shader pair created in Init()
@@ -642,26 +733,26 @@ void Draw ( ESContext *esContext )
   glClear ( GL_COLOR_BUFFER_BIT );
 
   // Use the program object
-  glUseProgram ( userData->programObject );
 
   if (mode == 0) {
+    glUseProgram ( userData->programObjectCalib );
     GLfloat buffer[256*3];
     int i;
     int r;
     for (i = 0; i < SAMPLESIZE; i++) {
       if (i % 2 == 0) {
-        printf("x: ");
+        // X-coord
         buffer[i] = i * 0.0078125 - 1;
       } else {
-        printf("y: ");
+        // Y-coord
         if (threaddata.sampleBuf[0][i] > 1024) {
           threaddata.sampleBuf[0][i] = 1024;
         }
         GLfloat val = ((float) threaddata.sampleBuf[0][i]) * 0.001953125 - 1;
         buffer[i] = val * CALIB_X_SCALE;
       }
-      printf(" #%d: %f\t", i, buffer[i]);
-      printf("\n");
+      //printf(" #%d: %f\t", i, buffer[i]);
+      //printf("\n");
     }
 
      // Load the vertex data
@@ -670,6 +761,7 @@ void Draw ( ESContext *esContext )
 
      glDrawArrays ( GL_LINE_STRIP, 0, 128 );    
   } else {
+    glUseProgram ( userData->programShader );
     // Completely cover the screen
     GLfloat vVertices1[] = { -1.0f, -1.0f, 0.0f, 
                              -1.0f, 1.0f, 0.0f,

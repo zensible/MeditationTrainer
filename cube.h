@@ -34,7 +34,8 @@ struct Options {
 typedef struct
 {
   // Handle to a program object
-  GLuint programObject;
+  GLuint programObjectCalib;
+  GLuint programShader;
   GLint locGlobalTime;
   GLint locIChannel0;
   GLint locYOffset;
@@ -45,6 +46,8 @@ typedef struct
    GLuint textureId;
 
 } UserData;
+
+#define NUM_MODES 2
 
 #ifdef RPI_NO_X
 

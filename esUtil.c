@@ -28,8 +28,8 @@
 #include "esUtil.h"
 
 #ifdef RPI_NO_X
-#include  "bcm_host.h"
 #include "key.h"
+#include  "bcm_host.h"
 #else
 #include  <X11/Xlib.h>
 #include  <X11/Xatom.h>
@@ -206,7 +206,7 @@ GLboolean userInterrupt(ESContext *esContext)
     rprintf("==== KEY PRESSED === %d", key);
 
     if (esContext->keyFunc != NULL)
-        esContext->keyFunc(esContext, text, 0, 0);
+        esContext->keyFunc(esContext, key, 0, 0);
 
     return GL_TRUE;
   }

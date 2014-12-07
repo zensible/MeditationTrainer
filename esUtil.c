@@ -33,7 +33,6 @@
 
 
 #ifdef RPI_NO_X
-#include "key.h"
 #include  "bcm_host.h"
 
 

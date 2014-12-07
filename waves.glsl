@@ -26,7 +26,7 @@ void main(void)
   uv.y += 0.1;
   for(float i = 0.0; i < 10.0; i++) {
     
-    uv.y += (0.07 * sin(uv.x + i/7.0 + iGlobalTime ));
+    uv.y += (yOffset * sin(uv.x + i/7.0 + iGlobalTime ));
     wave_width = abs(1.0 / (150.0 * uv.y));
     wave_color += vec3(wave_width * 1.9, wave_width, wave_width * 1.5);
   }

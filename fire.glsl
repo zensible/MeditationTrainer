@@ -6,7 +6,7 @@
 #define YSCALE 0.25
 #define FLAMETONE vec3(50.0, 5.0, 1.0)
 
-precision lowp float;
+precision mediump float;
 
 uniform float yOffset;
 uniform float iGlobalTime;

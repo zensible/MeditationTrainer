@@ -76,6 +76,8 @@ int mode = 0;
 
 float CALIB_X_SCALE = 2.0;
 
+// waves: 0.01 - 0.1
+
 /*
  * Thread: monitors eeg, calculates 'avg' for use in visualizations
  */
@@ -141,7 +143,6 @@ void *monitoreeg(void *arg) {
       }
       avg = avg / num_freqs;
       printf("== AVG %f", avg);
-      avg = avg * 0.000390625 + 0.005;
 
       /*
       if (avg > 0.5) { avg = 0.5; }
@@ -159,37 +160,12 @@ void *monitoreeg(void *arg) {
   }
 }
 
-void OnKey ( ESContext *esContext, unsigned char key, int x, int y)
-{
-  rprintf("key %d", key);
-  switch ( key )
-  {
-    case 015:  // enter key
-      mode += 1;
-      if (mode >= NUM_MODES) {
-        mode = 0;
-      }
-      rprintf( "\nMODE: %d\n", mode );
-      break;
-    case 'm':
-      rprintf( "Saw an 'm'\n" );
-      break;
-    case 'a':
-      rprintf( "Saw an 'a'\n" );
-      break;
-    case '1':
-      rprintf( "Saw a '1'\n" );
-      break;
-    case 033: // ASCII Escape Key
-      exit( 0 );
-      break;
-  }
-}
 
 int main(int argc, char **argv)
 {
   threaddata.avg = 0.1;
 
+  // Fill eeg sample data with 0s to prevent buffer overruns
   int i;
   for (i = 0; i < SAMPLESIZE; i++) {
     threaddata.sampleBuf[0][i] = 0;
@@ -346,6 +322,33 @@ void serverDied(void)
   exit(1);
 }
 
+void OnKey ( ESContext *esContext, unsigned char key, int x, int y)
+{
+  rprintf("key %d", key);
+  switch ( key )
+  {
+    case 015:  // enter key
+      mode += 1;
+      if (mode >= NUM_MODES) {
+        mode = 0;
+      }
+      rprintf( "\nMODE: %d\n", mode );
+      break;
+    case 'm':
+      rprintf( "Saw an 'm'\n" );
+      break;
+    case 'a':
+      rprintf( "Saw an 'a'\n" );
+      break;
+    case '1':
+      rprintf( "Saw a '1'\n" );
+      break;
+    case 033: // ASCII Escape Key
+      exit( 0 );
+      break;
+  }
+}
+
 /*
  * eeg-client-related functions
  */
@@ -467,7 +470,7 @@ GLuint LoadShaderDisk ( GLenum type, const char *filename )
     return 0;
   }
 
-  printf("Source:\n\n%s", source);
+  //printf("Source:\n\n%s", source);
 
   const GLchar* sources[2] = {
     "#version 100\n"
@@ -547,7 +550,7 @@ char* file_read(const char* filename)
   return content;
 }
 
-GLuint initCalibration() {
+GLuint getProgram(int mode, char *vertex_shader, char *fragment_shader) {
   GLuint vertexShader;
   GLuint fragmentShader;
   GLint linked;
@@ -558,73 +561,11 @@ GLuint initCalibration() {
 
   char path_vertex[1024];
   strcpy(path_vertex, cwd);
-  strcat(path_vertex, "/vertex.glsl");
+  strcat(path_vertex, vertex_shader);
 
   char path_fragment[1024];
   strcpy(path_fragment, cwd);
-  strcat(path_fragment, "/calibrate.glsl");
-
-  // Load the vertex/fragment shaders
-  vertexShader = LoadShaderDisk ( GL_VERTEX_SHADER, path_vertex );
-  fragmentShader = LoadShaderDisk ( GL_FRAGMENT_SHADER, path_fragment );
-
-  GLuint programObject;
-
-  programObject = glCreateProgram ( );
-   
-  if ( programObject == 0 )
-     return 0;
-
-  glAttachShader ( programObject, vertexShader );
-  glAttachShader ( programObject, fragmentShader );
-
-  // Bind vPosition to attribute 0   
-  glBindAttribLocation ( programObject, 0, "vPosition" );
-
-  // Link the program
-  glLinkProgram ( programObject );
-
-  // Check the link status
-  glGetProgramiv ( programObject, GL_LINK_STATUS, &linked );
-
-  if ( !linked ) 
-  {
-     GLint infoLen = 0;
-
-     glGetProgramiv ( programObject, GL_INFO_LOG_LENGTH, &infoLen );
-      
-     if ( infoLen > 1 )
-     {
-        char* infoLog = malloc (sizeof(char) * infoLen );
-        glGetProgramInfoLog ( programObject, infoLen, NULL, infoLog );
-        esLogMessage ( "Error linking program:\n%s\n", infoLog );            
-        
-        free ( infoLog );
-     }
-
-     glDeleteProgram ( programObject );
-     return GL_FALSE;
-  }
-
-  return programObject;
-}
-
-GLuint initShader() {
-  GLuint vertexShader;
-  GLuint fragmentShader;
-  GLint linked;
-
-  char cwd[1024];
-  if (getcwd(cwd, sizeof(cwd)) == NULL)
-    perror("getcwd() error");
-
-  char path_vertex[1024];
-  strcpy(path_vertex, cwd);
-  strcat(path_vertex, "/vertex.glsl");
-
-  char path_fragment[1024];
-  strcpy(path_fragment, cwd);
-  strcat(path_fragment, "/oscope.glsl");
+  strcat(path_fragment, fragment_shader);
 
   // Load the vertex/fragment shaders
   vertexShader = LoadShaderDisk ( GL_VERTEX_SHADER, path_vertex );
@@ -688,19 +629,21 @@ int Init ( ESContext *esContext )
     perror("getcwd() error");
 
   // Store the program object
-  userData->programObjectCalib = initCalibration();
-  userData->programShader = initShader();
+  userData->programs[0] = getProgram(0, "/vertex.glsl", "/calibrate.glsl");
+  userData->programs[1] = getProgram(1, "/vertex.glsl", "/fire.glsl");
+  userData->programs[2] = getProgram(2, "/vertex.glsl", "/oscope.glsl");
+  userData->programs[3] = getProgram(3, "/vertex.glsl", "/waves.glsl");
+  userData->programs[4] = getProgram(4, "/vertex.glsl", "/fiery_spiral.glsl");
+  userData->programs[5] = getProgram(5, "/vertex.glsl", "/inferno.glsl");
 
-  // Get the uniform locations
-  userData->locCalibGlobalTime = glGetUniformLocation( userData->programObjectCalib, "iGlobalTime" );
-  userData->locCalibIChannel0 = glGetUniformLocation( userData->programObjectCalib, "iChannel0" );
-  userData->locCalibYOffset = glGetUniformLocation( userData->programObjectCalib, "yOffset" );
-  userData->locCalibIResolution = glGetUniformLocation( userData->programObjectCalib, "iResolution");
-
-  userData->locShaderGlobalTime = glGetUniformLocation( userData->programShader, "iGlobalTime" );
-  userData->locShaderIChannel0 = glGetUniformLocation( userData->programShader, "iChannel0" );
-  userData->locShaderYOffset = glGetUniformLocation( userData->programShader, "yOffset" );
-  userData->locShaderIResolution = glGetUniformLocation( userData->programShader, "iResolution");
+  int i;
+  for (i = 0; i < NUM_MODES; i++) {
+    // Get the uniform locations
+    userData->locGlobalTime[i] = glGetUniformLocation( userData->programs[i], "iGlobalTime" );
+    userData->locIChannel0[i] = glGetUniformLocation( userData->programs[i], "iChannel0" );
+    userData->locYOffset[i] = glGetUniformLocation( userData->programs[i], "yOffset" );
+    userData->locIResolution[i] = glGetUniformLocation( userData->programs[i], "iResolution");
+  }
 
   gettimeofday(&userData->timeStart, NULL);
 
@@ -728,7 +671,6 @@ void Draw ( ESContext *esContext )
 {
   UserData *userData = esContext->userData;
 
-
   // Set the viewport
   glViewport ( 0, 0, esContext->width, esContext->height );
    
@@ -738,7 +680,7 @@ void Draw ( ESContext *esContext )
   // Use the program object
 
   if (mode == 0) {
-    glUseProgram ( userData->programObjectCalib );
+    glUseProgram ( userData->programs[0] );
     GLfloat buffer[256*3];
     int i;
     int r;
@@ -769,7 +711,7 @@ void Draw ( ESContext *esContext )
 
      glDrawArrays ( GL_LINE_STRIP, 0, 128 );    
   } else {
-    glUseProgram ( userData->programShader );
+    glUseProgram ( userData->programs[mode] );
     // Completely cover the screen
     GLfloat vVertices1[] = { -1.0f, -1.0f, 0.0f, 
                              -1.0f, 1.0f, 0.0f,
@@ -795,18 +737,34 @@ void Draw ( ESContext *esContext )
     glBindTexture ( GL_TEXTURE_2D, userData->textureId );
 
     // Load the MVP matrix
-    glUniform1f( userData->locShaderGlobalTime, diffMs );
+    glUniform1f( userData->locGlobalTime[mode], diffMs );
 
     // Set the sampler texture unit to 0
-    glUniform1i ( userData->locShaderIChannel0, 0 );
+    glUniform1i ( userData->locIChannel0[mode], 0 );
+
+    float avg = threaddata.avg;
+    if (mode == 3) {
+      // Range: 1 - 5
+      avg = avg * (4/1024) + 1;
+    } else if (mode == 4) {  // fiery_spiral
+      // Range: .01 - .05
+      avg = avg * (.01/1024) + 0.05;
+    } else if (mode == 5) { // inferno
+      // Range: .05 - 2
+      avg = avg * (1.95/1024) + 0.05;
+    }
+    else {
+      // Range: 0.005 - .5
+      avg = avg * 0.000390625 + 0.005;
+    }
 
     //avg = (rand() % 10 + 1) / 10.0;
     printf("\navg %f", threaddata.avg);
 
     // Set the sampler texture unit to 0
-    glUniform1f ( userData->locShaderYOffset, threaddata.avg );
+    glUniform1f ( userData->locYOffset[mode], avg );
 
-    glUniform2f( userData->locShaderIResolution, SCREENWID, SCREENHEI );
+    glUniform2f( userData->locIResolution[mode], SCREENWID, SCREENHEI );
 
     glDrawArrays ( GL_TRIANGLE_STRIP, 0, 18 );    
   }

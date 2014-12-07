@@ -15,6 +15,7 @@ void serverDied(void);
 // Display-related prototypes
 GLuint LoadShader ( GLenum type, const char *shaderSrc );
 GLuint LoadShaderDisk ( GLenum type, const GLchar *shaderSrc );
+void OnKey ( ESContext *esContext, unsigned char key, int x, int y);
 
 int Init ( ESContext *esContext );
 void Draw ( ESContext *esContext );
@@ -31,21 +32,17 @@ struct Options {
     double seconds;
 };
 
+#define NUM_MODES 6
+
 typedef struct
 {
   // Handle to a program object
-  GLuint programObjectCalib;
-  GLuint programShader;
+  GLuint programs[NUM_MODES];
 
-  GLint locCalibGlobalTime;
-  GLint locCalibIChannel0;
-  GLint locCalibYOffset;
-  GLint locCalibIResolution;
-
-  GLint locShaderGlobalTime;
-  GLint locShaderIChannel0;
-  GLint locShaderYOffset;
-  GLint locShaderIResolution;
+  GLuint locGlobalTime[NUM_MODES];
+  GLuint locIChannel0[NUM_MODES];
+  GLuint locYOffset[NUM_MODES];
+  GLuint locIResolution[NUM_MODES];
 
   struct timeval timeStart;
 
@@ -54,7 +51,6 @@ typedef struct
 
 } UserData;
 
-#define NUM_MODES 2
 
 #ifdef RPI_NO_X
 

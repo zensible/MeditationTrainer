@@ -338,7 +338,11 @@ void OnKey ( ESContext *esContext, unsigned char key, int x, int y)
       rprintf( "Saw an 'm'\n" );
       break;
     case 'a':
-      rprintf( "Saw an 'a'\n" );
+      mode += 1;
+      if (mode >= NUM_MODES) {
+        mode = 0;
+      }
+      rprintf( "\nMODE: %d\n", mode );
       break;
     case '1':
       rprintf( "Saw a '1'\n" );

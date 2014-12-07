@@ -29,13 +29,13 @@
 
 #ifdef RPI_NO_X
 #include  "bcm_host.h"
+#include "key.h"
 #else
 #include  <X11/Xlib.h>
 #include  <X11/Xatom.h>
 #include  <X11/Xutil.h>
 #endif
 
-#include "key.h"
 
 #ifndef RPI_NO_X
 // X11 related local variables
@@ -202,7 +202,7 @@ GLboolean userInterrupt(ESContext *esContext)
     // Ctrl-C for now to stop
     
   int key;
-  if (keyPressed(key)) {
+  if (keyPressed(&key)) {
     rprintf("==== KEY PRESSED === %d", key);
 
     if (esContext->keyFunc != NULL)

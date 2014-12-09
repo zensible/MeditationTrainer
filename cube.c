@@ -76,8 +76,6 @@ int mode = 0;
 
 float CALIB_X_SCALE = 2.0;
 
-// waves: 0.01 - 0.1
-
 /*
  * Thread: monitors eeg, calculates 'avg' for use in visualizations
  */
@@ -638,7 +636,7 @@ int Init ( ESContext *esContext )
   userData->programs[2] = getProgram(2, "/vertex.glsl", "/oscope.glsl");
   userData->programs[3] = getProgram(3, "/vertex.glsl", "/waves.glsl");
   userData->programs[4] = getProgram(4, "/vertex.glsl", "/fiery_spiral.glsl");
-  userData->programs[5] = getProgram(5, "/vertex.glsl", "/inferno.glsl");
+  //userData->programs[5] = getProgram(5, "/vertex.glsl", "/inferno.glsl");
 
   int i;
   for (i = 0; i < NUM_MODES; i++) {
@@ -748,16 +746,14 @@ void Draw ( ESContext *esContext )
 
     float avg = threaddata.avg;
     if (mode == 3) {
-      // Range: 1 - 5
-      avg = avg * (4/1024) + 1;
+      // waves: 0.01 - 0.1
+      //avg = avg * (0.05/1024.0) + 0.1;
+      avg = avg * 0.00004882812 + 0.01;
     } else if (mode == 4) {  // fiery_spiral
       // Range: .01 - .05
-      avg = avg * (.01/1024) + 0.05;
-    } else if (mode == 5) { // inferno
-      // Range: .05 - 2
-      avg = avg * (1.95/1024) + 0.05;
-    }
-    else {
+      //avg = avg * (.01/1024.0) + 0.05;
+      avg = (avg * 0.00000976562 + 0.01) * 1.25;
+    } else {
       // Range: 0.005 - .5
       avg = avg * 0.000390625 + 0.005;
     }

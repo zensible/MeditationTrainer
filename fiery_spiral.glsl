@@ -29,7 +29,7 @@ void main(void)
   int n_colors = 5;
   int i_turn = int(mod(float(n_colors) * turn_sine, float(n_colors)));
   
-  int i_radius = int(1.5/pow(radius*0.5, 0.6) + 0.7 * iGlobalTime);
+  int i_radius = int(1.5/pow(radius*0.5, 0.6) + yOffset * iGlobalTime);
     
   int i_color = int(mod(float(i_turn + i_radius), float(n_colors)));
   

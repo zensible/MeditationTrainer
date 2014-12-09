@@ -32,7 +32,7 @@ struct Options {
     double seconds;
 };
 
-#define NUM_MODES 6
+#define NUM_MODES 5
 
 typedef struct
 {

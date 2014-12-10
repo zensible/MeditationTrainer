@@ -132,7 +132,7 @@ void *monitoreeg(void *arg) {
         int val;
         val = abs(out[i][0]) ^ 2;
         hz = ((i * SAMPLESIZE) / 100);
-        if (hz > 0 && hz < 45) {
+        if (hz >= 20 && hz <= 48) {  // beta waves and low gamma waves
           avg += val;
           num_freqs++;
           //printf ( "%3d  %5d  %12f  %12f\n", i, hz, out[i][0], out[i][1] );
@@ -632,11 +632,12 @@ int Init ( ESContext *esContext )
 
   // Store the program object
   userData->programs[0] = getProgram(0, "/vertex.glsl", "/calibrate.glsl");
-  userData->programs[1] = getProgram(1, "/vertex.glsl", "/fire.glsl");
-  userData->programs[2] = getProgram(2, "/vertex.glsl", "/oscope.glsl");
-  userData->programs[3] = getProgram(3, "/vertex.glsl", "/waves.glsl");
+  userData->programs[1] = getProgram(1, "/vertex.glsl", "/waves.glsl");
+  userData->programs[2] = getProgram(2, "/vertex.glsl", "/fire.glsl");
+  userData->programs[3] = getProgram(3, "/vertex.glsl", "/oscope.glsl");
   userData->programs[4] = getProgram(4, "/vertex.glsl", "/fiery_spiral.glsl");
-  //userData->programs[5] = getProgram(5, "/vertex.glsl", "/inferno.glsl");
+  //userData->programs[5] = getProgram(5, "/vertex.glsl", "/torusjourney.glsl");
+  //userData->programs[6] = getProgram(6, "/vertex.glsl", "/galaxy.glsl");
 
   int i;
   for (i = 0; i < NUM_MODES; i++) {
@@ -745,17 +746,21 @@ void Draw ( ESContext *esContext )
     glUniform1i ( userData->locIChannel0[mode], 0 );
 
     float avg = threaddata.avg;
-    if (mode == 3) {
-      // waves: 0.01 - 0.1
-      //avg = avg * (0.05/1024.0) + 0.1;
-      avg = avg * 0.00004882812 + 0.01;
-    } else if (mode == 4) {  // fiery_spiral
-      // Range: .01 - .05
-      //avg = avg * (.01/1024.0) + 0.05;
-      avg = (avg * 0.00000976562 + 0.01) * 1.25;
-    } else {
-      // Range: 0.005 - .5
+
+    switch(mode) {
+    case 1:  // waves    0.005 - .03
+      //avg = avg * (0.05/1024.0) + 0.03;
+      avg = avg * 0.00004882812 + 0.03;
+      break;
+    case 2:  // fire  0.005 - .5
       avg = avg * 0.000390625 + 0.005;
+      break;
+    case 3:  // oscope  0.005 - .01
+      avg = avg * 0.00004882812 + 0.01;
+      break;
+    case 4:  // fiery_spiral   .01 - .05
+      avg = (avg * 0.00000976562 + 0.01) * 1.25;
+      break;
     }
 
     //avg = (rand() % 10 + 1) / 10.0;

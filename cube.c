@@ -3,21 +3,6 @@
 #include <string.h>
 #include <stdlib.h>
 
-/*
-#include <GLES2/gl2.h>
-#include <EGL/egl.h>
-*/
-
-#ifdef RPI_NO_X
-#include  "bcm_host.h"
-#else
-#include  <X11/Xlib.h>
-#include  <X11/Xatom.h>
-#include  <X11/Xutil.h>
-#endif
-
-#include "monitor.h"
-
 #include <openedf.h>
 #include <sys/time.h>
 #include <pctimer.h>
@@ -61,9 +46,7 @@ const char *helpText =
 sock_t sock_fd;
 char EDFPacket[MAXHEADERLEN];
 GIOChannel *neuroserver;
-//static int sampleBuf[2][SAMPLESIZE];
 static int readSamples = 0;
-
 
 static struct OutputBuffer ob;
 struct InputBuffer ib;

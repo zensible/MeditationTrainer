@@ -250,6 +250,9 @@ EGLBoolean WinCreate(ESContext *esContext, const char *title)
    display_width = display_width;
    display_height = display_height;
 
+   esContext->width = display_width;
+   esContext->height = display_height;
+
    dst_rect.x = 0;
    dst_rect.y = 0;
    dst_rect.width = display_width;
@@ -450,6 +453,7 @@ void ESUTIL_API esInitContext ( ESContext *esContext )
 //
 GLboolean ESUTIL_API esCreateWindow ( ESContext *esContext, const char* title, GLint width, GLint height, GLuint flags )
 {
+  rprintf("002.01.!");
    EGLint attribList[] =
    {
        EGL_RED_SIZE,       5,
@@ -466,9 +470,11 @@ GLboolean ESUTIL_API esCreateWindow ( ESContext *esContext, const char* title, G
    {
       return GL_FALSE;
    }
+  rprintf("002.01.a");
 
    esContext->width = width;
    esContext->height = height;
+  rprintf("002.01.b");
 
    if ( !WinCreate ( esContext, title) )
    {
@@ -484,7 +490,8 @@ GLboolean ESUTIL_API esCreateWindow ( ESContext *esContext, const char* title, G
    {
       return GL_FALSE;
    }
-   
+     rprintf("002.01.c");
+
 
    return GL_TRUE;
 }

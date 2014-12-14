@@ -247,8 +247,10 @@ EGLBoolean WinCreate(ESContext *esContext, const char *title)
    }
    
    // You can hardcode the resolution here:
-   display_width = display_width;
-   display_height = display_height;
+   /*
+   display_width = 1024;
+   display_height = 768;
+   */
 
    esContext->width = display_width;
    esContext->height = display_height;
@@ -470,11 +472,9 @@ GLboolean ESUTIL_API esCreateWindow ( ESContext *esContext, const char* title, G
    {
       return GL_FALSE;
    }
-  rprintf("002.01.a");
 
    esContext->width = width;
    esContext->height = height;
-  rprintf("002.01.b");
 
    if ( !WinCreate ( esContext, title) )
    {
@@ -490,8 +490,6 @@ GLboolean ESUTIL_API esCreateWindow ( ESContext *esContext, const char* title, G
    {
       return GL_FALSE;
    }
-     rprintf("002.01.c");
-
 
    return GL_TRUE;
 }

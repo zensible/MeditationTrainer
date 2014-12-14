@@ -80,9 +80,10 @@ int main()
   // Start thread to poll EEG:
 
   /* this variable is our reference to the second thread */
-  /*
   pthread_t poll_eeg;
   pthread_mutex_init(&lock_threaddata, NULL);
+
+  p = rfftw_create_plan(X_SIZE, FFTW_REAL_TO_COMPLEX, FFTW_ESTIMATE);
 
   if (pthread_create(&poll_eeg, NULL, poll_eeg_thread, &thrdata)) {
 
@@ -90,62 +91,11 @@ int main()
     return 1;
 
   }
-  */
 
   //poll_eeg_thread(&thrdata);
 
 
 
-p = rfftw_create_plan(X_SIZE, FFTW_REAL_TO_COMPLEX, FFTW_ESTIMATE);
-
-
-  // Init eeg client
-  char cmdbuf[80];
-  int EDFLen = MAXHEADERLEN;
-  struct EDFDecodedConfig cfg;
-  double t0;
-  int retval;
-  strcpy(opts.hostname, DEFAULTHOST);
-  opts.port = DEFAULTPORT;
-  opts.eegNum = 0;
-  rinitNetworking();
-
-  sock_fd = rsocket();
-  if (sock_fd < 0) {
-      perror("socket");
-      rexit(1);
-  }
-  rprintf("Got socket.\n");
-
-  retval = rconnectName(sock_fd, opts.hostname, opts.port);
-  if (retval != 0) {
-      rprintf("connect error\n");
-      rexit(1);
-  }
-
-  rprintf("Socket connected.\n");
-
-  writeString(sock_fd, "display\n", &ob);
-  getOK(sock_fd, &ib);
-  rprintf("Finished display, doing getheader %d.\n", opts.eegNum);
-
-  sprintf(cmdbuf, "getheader %d\n", opts.eegNum);
-  writeString(sock_fd, cmdbuf, &ob);
-  getOK(sock_fd, &ib);
-  if (isEOF(sock_fd, &ib)) {
-    rprintf("Server died!\n");
-    exit(1);
-  }
-
-  EDFLen = readline(sock_fd, EDFPacket, sizeof(EDFPacket), &ib);
-  rprintf("Got EDF Header <%s>\n", EDFPacket);
-  readEDFString(&cfg, EDFPacket, EDFLen);
-
-  sprintf(cmdbuf, "watch %d\n", opts.eegNum);
-  writeString(sock_fd, cmdbuf, &ob);
-  //getOK(sock_fd, &ib);
-
-  rprintf("Watching for EEG data.\n");
 
 
   // We're connected to nsd. Now initiate graphics
@@ -222,7 +172,184 @@ p = rfftw_create_plan(X_SIZE, FFTW_REAL_TO_COMPLEX, FFTW_ESTIMATE);
 void *poll_eeg_thread(void *thrdata_void_ptr)
 {
 
+  // Init eeg client
+  char cmdbuf[80];
+  int EDFLen = MAXHEADERLEN;
+  struct EDFDecodedConfig cfg;
+  double t0;
+  int retval;
+  strcpy(opts.hostname, DEFAULTHOST);
+  opts.port = DEFAULTPORT;
+  opts.eegNum = 0;
+  rinitNetworking();
 
+  sock_fd = rsocket();
+  if (sock_fd < 0) {
+      perror("socket");
+      rexit(1);
+  }
+  rprintf("Got socket.\n");
+
+  retval = rconnectName(sock_fd, opts.hostname, opts.port);
+  if (retval != 0) {
+      rprintf("connect error\n");
+      rexit(1);
+  }
+
+  rprintf("Socket connected.\n");
+
+  writeString(sock_fd, "display\n", &ob);
+  getOK(sock_fd, &ib);
+  rprintf("Finished display, doing getheader %d.\n", opts.eegNum);
+
+  sprintf(cmdbuf, "getheader %d\n", opts.eegNum);
+  writeString(sock_fd, cmdbuf, &ob);
+  getOK(sock_fd, &ib);
+  if (isEOF(sock_fd, &ib)) {
+    rprintf("Server died!\n");
+    exit(1);
+  }
+
+  EDFLen = readline(sock_fd, EDFPacket, sizeof(EDFPacket), &ib);
+  rprintf("Got EDF Header <%s>\n", EDFPacket);
+  readEDFString(&cfg, EDFPacket, EDFLen);
+
+  sprintf(cmdbuf, "watch %d\n", opts.eegNum);
+  writeString(sock_fd, cmdbuf, &ob);
+  getOK(sock_fd, &ib);
+
+  rprintf("Watching for EEG data.\n");
+
+  THRDATA *thrdata_ptr = thrdata_void_ptr;
+
+  rprintf("\n\n== start\n\n");
+  int counter = 0;
+  while(1) {
+    counter++;
+
+    int i;
+    char *cur;
+    int vals[MAXCHANNELS + 5];
+    int curParam = 0;
+    int devNum, packetCounter, channels, *samples;
+    linePos = readline(sock_fd, lineBuf, sizeof(EDFPacket), &ib);
+    if (isEOF(sock_fd, &ib)) {
+      rprintf("Got EOF\n");
+      exit(0);
+    }
+    //rprintf("Got line retval=<%d>, <%s>\n", linePos, lineBuf);
+
+    if (linePos < MINLINELENGTH) {
+      rprintf(" < MINLINE\n");
+      return;
+    }
+
+    if (lineBuf[0] != '!') {
+      rprintf("doesn't start w !\n");
+      return;
+    }
+
+    for (cur = strtok(lineBuf, DELIMS); cur ; cur = strtok(NULL, DELIMS)) {
+      if (isANumber(cur))
+          vals[curParam++] = atoi(cur);
+  // <devicenum> <packetcounter> <channels> data0 data1 data2 ...
+      if (curParam < 3) {
+        continue;
+      }
+      devNum = vals[0];
+      packetCounter = vals[1];
+      channels = vals[2];
+      samples = vals + 3;
+      for (i = 0; i < channels; ++i) {
+        //rprintf("Sample #%d: %d\n", i, samples[i]);
+      }
+    }
+
+    int channel;
+    for (channel = 0; channel < 2; ++channel) {
+      int val = samples[channel];
+
+      static int updateCounter = 0;
+      assert(channel == 0 || channel == 1);
+      if (!(val >= 0 && val < 1024)) {
+        //rprintf("Got bad value: %d -> ", val);
+        /*
+         * Instead use previous value, so the graph doesn't jump around
+         */ 
+        if (readSamples > 0) {
+          val = thrdata_ptr->sampleBuf[channel][readSamples-1];
+        }
+      }
+
+      /*
+       * Fill buffer from left to right until you reach the end.
+       *
+       * Once there, instead keep shuffling sample values left by one and filling in the last slot (SAMPLESIZE-1) 
+       */
+
+      if (readSamples == SAMPLESIZE-1) {
+        memmove(&thrdata_ptr->sampleBuf[channel][0], &thrdata_ptr->sampleBuf[channel][1],  sizeof(int)*(SAMPLESIZE-1));
+      }
+
+      thrdata_ptr->sampleBuf[channel][readSamples] = val;
+
+      if (readSamples < SAMPLESIZE-1 && channel == 1)
+        readSamples += 1;
+
+    }
+
+
+    if (counter % 10 == 0 && readSamples == SAMPLESIZE - 1) {
+      counter = 1;
+
+      int i;
+
+      for (i = 0; i < SAMPLESIZE; i++) {
+        in[i] = thrdata_ptr->sampleBuf[0][i] - ADC_RESOLUTION/2.0;
+         //rprintf("In i: %d, orig: %d, val: %f\n", i, thrdata.sampleBuf[0][i], in[i]);
+      }
+
+      rfftw_one(p, in, out);
+      power_spectrum[0] = out[0] * out[0];  /* DC component */
+
+      int max_freq = (X_SIZE + 1)/2;
+      //int max_freq = 48;
+
+      for (i=1; i < max_freq; i++)  /* (k < N/2 rounded up) */
+      {
+        power_spectrum[i] = out[i]*out[i] + out[X_SIZE-i]*out[X_SIZE-i];
+        //printf("i=%d power_spectrum[i]=%f\n", i, power_spectrum[i]);
+      }
+
+      if (X_SIZE % 2 == 0) /* N is even */
+      {
+          power_spectrum[X_SIZE/2] = out[X_SIZE/2]*out[X_SIZE/2];  /* Nyquist freq. */
+      }
+
+      float delta=0, theta=0, alpha=0, beta=0, gamma=0, mu=0, total=0;
+
+      for (i=0; i<(max_freq); i++) total += power_spectrum[i];
+      for (i=0; i<4; i++) delta += power_spectrum[i];
+      for (i=4; i<=8; i++) theta += power_spectrum[i];
+      for (i=8; i<=13; i++) alpha += power_spectrum[i];
+      for (i=14; i<=30; i++) beta += power_spectrum[i];
+      for (i=30; i<=max_freq; i++) gamma += power_spectrum[i];
+      for (i=8; i<=13; i++) mu += power_spectrum[i];
+      delta /= total; theta /= total; alpha /= total; beta /= total; gamma /= total; mu /= total;
+
+      rprintf("== Total:    %f\n", total);
+      rprintf("== AVG Delta:    %f\n", delta);
+      rprintf("== AVG Theta:    %f\n", theta);
+      rprintf("== AVG Alpha:    %f\n", alpha);
+      rprintf("== AVG Beta:    %f\n", beta);
+      rprintf("== AVG Gamma:    %f\n", gamma);
+      rprintf("== AVG Mu:    %f\n", mu);
+
+      //thrdata_ptr->avg = Gamma * 1024.0 * 2.5;
+      thrdata_ptr->avg = beta * 1024.0 * 15;
+      rprintf("avg increment finished: %f\n", thrdata_ptr->avg);
+    }
+  }
   /* the function must return something - NULL will do */
   return NULL;
 }
@@ -515,7 +642,6 @@ int Init ( ESContext *esContext )
 ///
 // Draw a triangle using the shader pair created in Init()
 //
-int counter = 0;
 
 void Draw ( ESContext *esContext )
 {
@@ -524,131 +650,8 @@ void Draw ( ESContext *esContext )
 
 
 
-  counter++;
   //rprintf("\n\n== counter %d\n\nreadSamples %d", counter, readSamples);
 
-  int i;
-  char *cur;
-  int vals[MAXCHANNELS + 5];
-  int curParam = 0;
-  int devNum, packetCounter, channels, *samples;
-
-  linePos = readline(sock_fd, lineBuf, sizeof(EDFPacket), &ib);
-  if (isEOF(sock_fd, &ib)) {
-    rprintf("Got EOF\n");
-    exit(0);
-  }
-
-  if (linePos < MINLINELENGTH) {
-    rprintf(" < MINLINE\n");
-    return;
-  }
-
-  if (lineBuf[0] != '!') {
-    rprintf("!!\n");
-    return;
-  }
-
-  //rprintf("Got line retval=<%d>, <%s>\n", linePos, lineBuf);
-  for (cur = strtok(lineBuf, DELIMS); cur ; cur = strtok(NULL, DELIMS)) {
-    if (isANumber(cur))
-        vals[curParam++] = atoi(cur);
-// <devicenum> <packetcounter> <channels> data0 data1 data2 ...
-    if (curParam < 3) {
-      continue;
-    }
-    devNum = vals[0];
-    packetCounter = vals[1];
-    channels = vals[2];
-    samples = vals + 3;
-    for (i = 0; i < channels; ++i) {
-      //rprintf("Sample #%d: %d\n", i, samples[i]);
-    }
-  }
-
-  int channel;
-  for (channel = 0; channel < 2; ++channel) {
-    int val = samples[channel];
-
-    static int updateCounter = 0;
-    assert(channel == 0 || channel == 1);
-    if (!(val >= 0 && val < 1024)) {
-      //rprintf("Got bad value: %d -> ", val);
-      /*
-       * Instead use previous value, so the graph doesn't jump around
-       */ 
-      if (readSamples > 0) {
-        val = thrdata.sampleBuf[channel][readSamples-1];
-      }
-    }
-
-    /*
-     * Fill buffer from left to right until you reach the end.
-     *
-     * Once there, instead keep shuffling sample values left by one and filling in the last slot (SAMPLESIZE-1) 
-     */
-
-    if (readSamples == SAMPLESIZE-1) {
-      memmove(&thrdata.sampleBuf[channel][0], &thrdata.sampleBuf[channel][1],  sizeof(int)*(SAMPLESIZE-1));
-    }
-
-    thrdata.sampleBuf[channel][readSamples] = val;
-
-    if (readSamples < SAMPLESIZE-1 && channel == 1)
-      readSamples += 1;
-
-  }
-
-
-  if (counter % 5 == 0 && readSamples == SAMPLESIZE - 1) {
-    counter = 1;
-
-    int i;
-
-    for (i = 0; i < SAMPLESIZE; i++) {
-      in[i] = thrdata.sampleBuf[0][i] - ADC_RESOLUTION/2.0;
-       //rprintf("In i: %d, orig: %d, val: %f\n", i, thrdata.sampleBuf[0][i], in[i]);
-    }
-
-    rfftw_one(p, in, out);
-    power_spectrum[0] = out[0] * out[0];  /* DC component */
-
-    int max_freq = (X_SIZE + 1)/2;
-    //int max_freq = 48;
-
-    for (i=1; i < max_freq; i++)  /* (k < N/2 rounded up) */
-    {
-      power_spectrum[i] = out[i]*out[i] + out[X_SIZE-i]*out[X_SIZE-i];
-      //printf("i=%d power_spectrum[i]=%f\n", i, power_spectrum[i]);
-    }
-
-    if (X_SIZE % 2 == 0) /* N is even */
-    {
-        power_spectrum[X_SIZE/2] = out[X_SIZE/2]*out[X_SIZE/2];  /* Nyquist freq. */
-    }
-
-    float delta=0, theta=0, alpha=0, beta=0, gamma=0, mu=0, total=0;
-
-    for (i=0; i<(max_freq); i++) total += power_spectrum[i];
-    for (i=0; i<4; i++) delta += power_spectrum[i];
-    for (i=4; i<=8; i++) theta += power_spectrum[i];
-    for (i=8; i<=13; i++) alpha += power_spectrum[i];
-    for (i=14; i<=30; i++) beta += power_spectrum[i];
-    for (i=30; i<=max_freq; i++) gamma += power_spectrum[i];
-    for (i=8; i<=13; i++) mu += power_spectrum[i];
-    delta /= total; theta /= total; alpha /= total; beta /= total; gamma /= total; mu /= total;
-
-    rprintf("== Total:    %f\n", total);
-    rprintf("== AVG Delta:    %f\n", delta);
-    rprintf("== AVG Theta:    %f\n", theta);
-    rprintf("== AVG Alpha:    %f\n", alpha);
-    rprintf("== AVG Beta:    %f\n", beta);
-    rprintf("== AVG Gamma:    %f\n", gamma);
-    rprintf("== AVG Mu:    %f\n", mu);
-
-    thrdata.avg = beta * 1024;
-    rprintf("avg increment finished: %f\n", thrdata.avg);
-  }
 
 
 
@@ -672,7 +675,7 @@ void Draw ( ESContext *esContext )
     for (i = 0; i < SAMPLESIZE; i++) {
       if (i % 2 == 0) {
         // X-coord
-        buffer[i] = i * 0.0078125 - 1;
+        buffer[i] = i * (2.0/256.0) - 1.0;
       } else {
         // Y-coord
         if (thrdata.sampleBuf[0][i] > 1024) {
@@ -683,7 +686,7 @@ void Draw ( ESContext *esContext )
           threaddata.sampleBuf[0][i] = threaddata.sampleBuf[0][i - i];
         }
         */
-        GLfloat val = ((float) thrdata.sampleBuf[0][i]) * 0.001953125 - 1;
+        GLfloat val = ((float) thrdata.sampleBuf[0][i]) * (2.0/ ((float) esContext->height)) - 1.0;
         buffer[i] = val * 2; // Amplify Y-axis by 2 for sensitivity;
       }
       //printf(" #%d: %f\t", i, buffer[i]);
@@ -730,9 +733,9 @@ void Draw ( ESContext *esContext )
     float avg = thrdata.avg;
 
     switch(mode) {
-    case 1:  // waves    0.005 - .03
-      //avg = avg * (0.5/1024.0) + 0.03;
-      avg = avg * 0.00004882812 + 0.01;
+    case 1:  // waves    0.005 - .08
+      //avg = avg * (0.08/1024.0) + 0.03;
+      avg = avg * (0.08/1024.0) + 0.005;
       break;
     case 2:  // fire  0.005 - .5
       avg = avg * 0.000390625 + 0.005;

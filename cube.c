@@ -346,7 +346,8 @@ void *poll_eeg_thread(void *thrdata_void_ptr)
       rprintf("== AVG Mu:    %f\n", mu);
 
       //thrdata_ptr->avg = Gamma * 1024.0 * 2.5;
-      thrdata_ptr->avg = beta * 1024.0 * 15;
+      //thrdata_ptr->avg = beta * 1024.0 * 15;
+      thrdata_ptr->avg = theta * 1024.0 * 10;
       rprintf("avg increment finished: %f\n", thrdata_ptr->avg);
     }
   }

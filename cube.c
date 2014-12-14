@@ -14,218 +14,67 @@
 #include <fftw3.h>
 #include <pthread.h>
 
+#include <pthread.h>
+#include <stdio.h>
+
 #include "cube.h"
-#include "esUtil.h"
 
-typedef struct 
-{
-  float     avg; 
-  int sampleBuf[2][SAMPLESIZE];
-} THRDATA;
+//http://timmurphy.org/2010/05/04/pthreads-in-c-a-minimal-working-example/
+//https://computing.llnl.gov/tutorials/pthreads/
 
-THRDATA threaddata;
+pthread_mutex_t lock_threaddata;
 
-pthread_t callThd[1];
-pthread_mutex_t mutexsum;
-
-/*
- * Vars related to polling neuroserver
- */
-const char *helpText =
-"sampleClient   v 0.34 by Rudi Cilibrasi\n"
-"\n"
-"Usage:  sampleClient [options]\n"
-"\n"
-"        -p port          Port number to use (default 8336)\n"
-"        -n hostname      Host name of the NeuroCaster server to connect to\n"
-"                         (this defaults to 'localhost')\n"
-"        -e <intnum>      Integer ID specifying which EEG to log (default: 0)\n"
-"The filename specifies the new EDF file to create.\n"
-;
-
-sock_t sock_fd;
-char EDFPacket[MAXHEADERLEN];
-GIOChannel *neuroserver;
-static int readSamples = 0;
-
-static struct OutputBuffer ob;
-struct InputBuffer ib;
-char lineBuf[MAXLEN];
-int linePos = 0;
-
+void *poll_eeg_thread(void *thrdata_void_ptr);
+void get_line_edf();
+void handleSample(int channel, int val);
+int isANumber(const char *str);
+void initNsdClient();
 struct Options opts;
 
+
+void Draw ( ESContext *esContext );
+int Init ( ESContext *esContext );
+void OnKey ( ESContext *esContext, unsigned char key, int x, int y);
+GLuint getProgram(int mode, char *vertex_shader, char *fragment_shader);
+char* file_read(const char* filename);
+
 int mode = 0;
+THRDATA thrdata;
 
-float CALIB_X_SCALE = 2.0;
-
-/*
- * Thread: monitors eeg, calculates 'avg' for use in visualizations
- */
-void *monitoreeg(void *arg) {
-  int counter = 0;
-  while (1)
-  {
-    counter++;
-    //printf("counter %d", counter);
-    idleHandler();
-
-    if (counter % 50 == 0) {
-      int i;
-      fftw_complex *in;
-      fftw_complex *in2;
-      fftw_complex *out;
-      fftw_plan plan_backward;
-      fftw_plan plan_forward;
-
-      in = fftw_malloc ( sizeof ( fftw_complex ) * SAMPLESIZE );
-
-      for (i = 0; i < SAMPLESIZE; i++) {
-        int val = threaddata.sampleBuf[0][i];
-        in[i][0] = val;
-        in[i][1] = 0;
-      }
-
-      /*
-        printf ( "\n" );
-        printf ( "  Input Data:\n" );
-        printf ( "\n" );
-
-        for ( i = 0; i < n; i++ )
-        {
-          printf ( "  %3d  %12f  %12f\n", i, in[i][0], in[i][1] );
-        }
-      */
-
-      out = fftw_malloc ( sizeof ( fftw_complex ) * SAMPLESIZE );
-
-      plan_forward = fftw_plan_dft_1d ( SAMPLESIZE, in, out, FFTW_FORWARD, FFTW_ESTIMATE );
-
-      fftw_execute ( plan_forward );
-
-      //printf ( "\n" );
-      //printf ( "  Output Data:\n" );
-      //printf ( "\n" );
-
-      int num_freqs = 0;
-      float avg = 0;
-      for ( i = 0; i < SAMPLESIZE; i++ )
-      {
-        int hz;
-        int val;
-        val = abs(out[i][0]) ^ 2;
-        hz = ((i * SAMPLESIZE) / 100);
-        if (hz >= 20 && hz <= 48) {  // beta waves and low gamma waves
-          avg += val;
-          num_freqs++;
-          //printf ( "%3d  %5d  %12f  %12f\n", i, hz, out[i][0], out[i][1] );
-          //printf ( "%3d  %5d  %12d\n", i, hz, val );
-        }
-      }
-      avg = avg / num_freqs;
-      printf("== AVG %f", avg);
-
-      /*
-      if (avg > 0.5) { avg = 0.5; }
-      if (avg < 0.05) { avg = 0.05; }
-      */
-
-      pthread_mutex_lock (&mutexsum);
-      threaddata.avg = avg;
-      pthread_mutex_unlock (&mutexsum);
-      /*
-       Oscope range: .1 - .5
-       0.00048828125
-      */
-    }
-  }
-}
-
-
-int main(int argc, char **argv)
+int main()
 {
-  threaddata.avg = 0.1;
+
+  /*
+   * Inialized struct used to share data between main and monitoreeg thread
+   */
+
+  thrdata.avg = 0.05;
 
   // Fill eeg sample data with 0s to prevent buffer overruns
   int i;
   for (i = 0; i < SAMPLESIZE; i++) {
-    threaddata.sampleBuf[0][i] = 0;
-    threaddata.sampleBuf[1][i] = 0;
+    thrdata.sampleBuf[0][i] = 0;
+    thrdata.sampleBuf[1][i] = 0;
   }
 
-  // Init eeg client
-  char cmdbuf[80];
-  int EDFLen = MAXHEADERLEN;
-  struct EDFDecodedConfig cfg;
-  double t0;
-  int retval;
-  strcpy(opts.hostname, DEFAULTHOST);
-  opts.port = DEFAULTPORT;
-  opts.eegNum = 0;
-  for (i = 1; i < argc; ++i) {
-    char *opt = argv[i];
-    if (opt[0] == '-') {
-      switch (opt[1]) {
-        case 'h':
-          printf("%s", helpText);
-          exit(0);
-          break;
-        case 'e':
-          opts.eegNum = atoi(argv[i+1]);
-          i += 1;
-          break;
-        case 'n':
-          strcpy(opts.hostname, argv[i+1]);
-          i += 1;
-          break;
-        case 'p':
-          opts.port = atoi(argv[i+1]);
-          i += 1;
-          break;
-        }
-      }
-      else {
-          fprintf(stderr, "Error: option %s not allowed", argv[i]);
-          exit(1);
-      }
+
+  // Start thread to poll EEG:
+
+  /* this variable is our reference to the second thread */
+  pthread_t poll_eeg;
+  pthread_mutex_init(&lock_threaddata, NULL);
+
+  /* create a second thread which executes inc_x(&x) */
+  if (pthread_create(&poll_eeg, NULL, poll_eeg_thread, &thrdata)) {
+
+    fprintf(stderr, "Error creating thread\n");
+    return 1;
+
   }
 
-  rinitNetworking();
+  //poll_eeg_thread(&thrdata);
 
-  sock_fd = rsocket();
-  if (sock_fd < 0) {
-      perror("socket");
-      rexit(1);
-  }
-  rprintf("Got socket.\n");
 
-  retval = rconnectName(sock_fd, opts.hostname, opts.port);
-  if (retval != 0) {
-      rprintf("connect error\n");
-      rexit(1);
-  }
-
-  rprintf("Socket connected.\n");
-
-  writeString(sock_fd, "display\n", &ob);
-  getOK(sock_fd, &ib);
-  rprintf("Finished display, doing getheader %d.\n", opts.eegNum);
-
-  sprintf(cmdbuf, "getheader %d\n", opts.eegNum);
-  writeString(sock_fd, cmdbuf, &ob);
-  getOK(sock_fd, &ib);
-  if (isEOF(sock_fd, &ib))
-      serverDied();
-
-  EDFLen = readline(sock_fd, EDFPacket, sizeof(EDFPacket), &ib);
-//  rprintf("Got EDF Header <%s>\n", EDFPacket);
-  readEDFString(&cfg, EDFPacket, EDFLen);
-
-  sprintf(cmdbuf, "watch %d\n", opts.eegNum);
-  writeString(sock_fd, cmdbuf, &ob);
-  getOK(sock_fd, &ib);
-
-  rprintf("Watching for EEG data.\n");
 
   // We're connected to nsd. Now initiate graphics
   ESContext esContext;
@@ -252,13 +101,6 @@ int main(int argc, char **argv)
 
   gettimeofday ( &t1 , &tz );
 
-  pthread_attr_t attr;
-  pthread_mutex_init(&mutexsum, NULL);
-  pthread_attr_init(&attr);
-  pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-
-  pthread_create(&callThd[0], &attr, monitoreeg, (void *)0);
-
   // Child process 1: show visualization
   while (userInterrupt(&esContext) == GL_FALSE)
   {
@@ -283,25 +125,247 @@ int main(int argc, char **argv)
     }
   }
 
-  int status = pthread_kill( callThd[0], SIGKILL);                                     
-  if ( status <  0)
-    perror("pthread_kill failed");
 
-  pthread_attr_destroy(&attr);
-  pthread_mutex_destroy(&mutexsum);
+
+
+
+
+
+
+  /* wait for the second thread to finish */
+  if (pthread_join(poll_eeg, NULL)) {
+    fprintf(stderr, "Error joining thread\n");
+    return 2;
+  }
+
+  pthread_mutex_destroy(&lock_threaddata);
   pthread_exit(NULL);
+
+  return 0;
+
 }
 
-void kill_child(int child_pid)
+
+/* this function is run by the second thread */
+void *poll_eeg_thread(void *thrdata_void_ptr)
 {
-    kill(child_pid,SIGKILL);
+  sock_t sock_fd;
+  char EDFPacket[MAXHEADERLEN];
+  GIOChannel *neuroserver;
+  static int readSamples = 0;
+
+  static struct OutputBuffer ob;
+  struct InputBuffer ib;
+  char lineBuf[MAXLEN];
+  int linePos = 0;
+
+
+  // Init eeg client
+  char cmdbuf[80];
+  int EDFLen = MAXHEADERLEN;
+  struct EDFDecodedConfig cfg;
+  double t0;
+  int retval;
+  strcpy(opts.hostname, DEFAULTHOST);
+  opts.port = DEFAULTPORT;
+  opts.eegNum = 0;
+  rinitNetworking();
+
+  sock_fd = rsocket();
+  if (sock_fd < 0) {
+      perror("socket");
+      rexit(1);
+  }
+  rprintf("Got socket.\n");
+
+  retval = rconnectName(sock_fd, opts.hostname, opts.port);
+  if (retval != 0) {
+      rprintf("connect error\n");
+      rexit(1);
+  }
+
+  rprintf("Socket connected.\n");
+
+  writeString(sock_fd, "display\n", &ob);
+  getOK(sock_fd, &ib);
+  rprintf("Finished display, doing getheader %d.\n", opts.eegNum);
+
+  sprintf(cmdbuf, "getheader %d\n", opts.eegNum);
+  writeString(sock_fd, cmdbuf, &ob);
+  getOK(sock_fd, &ib);
+  if (isEOF(sock_fd, &ib)) {
+    rprintf("Server died!\n");
+    exit(1);
+  }
+
+  EDFLen = readline(sock_fd, EDFPacket, sizeof(EDFPacket), &ib);
+  rprintf("Got EDF Header <%s>\n", EDFPacket);
+  readEDFString(&cfg, EDFPacket, EDFLen);
+
+  sprintf(cmdbuf, "watch %d\n", opts.eegNum);
+  writeString(sock_fd, cmdbuf, &ob);
+  //getOK(sock_fd, &ib);
+
+  rprintf("Watching for EEG data.\n");
+
+  THRDATA *thrdata_ptr = thrdata_void_ptr;
+
+  rprintf("\n\n== start\n\n");
+  int counter = 0;
+  while(1) {
+    counter++;
+    //rprintf("\n\n== counter %d\n\n", counter);
+
+    int i;
+    char *cur;
+    int vals[MAXCHANNELS + 5];
+    int curParam = 0;
+    int devNum, packetCounter, channels, *samples;
+
+    linePos = readline(sock_fd, lineBuf, sizeof(EDFPacket), &ib);
+    if (isEOF(sock_fd, &ib)) {
+      rprintf("Got EOF\n");
+      return NULL;
+    }
+    rprintf("Got line retval=<%d>, <%s>\n", linePos, lineBuf);
+
+    if (isEOF(sock_fd, &ib)) {
+      rprintf("Got EOF\n");
+      return NULL;
+    }
+
+    if (linePos < MINLINELENGTH) {
+      rprintf(" < MINLINE\n");
+      continue;
+    }
+
+    if (lineBuf[0] != '!') {
+      rprintf("!!\n");
+      continue;
+    }
+
+    for (cur = strtok(lineBuf, DELIMS); cur ; cur = strtok(NULL, DELIMS)) {
+      if (isANumber(cur))
+          vals[curParam++] = atoi(cur);
+  // <devicenum> <packetcounter> <channels> data0 data1 data2 ...
+      if (curParam < 3)
+          continue;
+      devNum = vals[0];
+      packetCounter = vals[1];
+      channels = vals[2];
+      samples = vals + 3;
+      for (i = 0; i < channels; ++i) {
+        //rprintf("Sample #%d: %d\n", i, samples[i]);
+      }
+    }
+
+    int channel;
+    for (channel = 0; channel < 2; ++channel) {
+      int val = samples[channel];
+      //handleSample(i, samples[i], thrdata_ptr);
+
+      static int updateCounter = 0;
+      assert(channel == 0 || channel == 1);
+      if (!(val >= 0 && val < 1024)) {
+        rprintf("Got bad value: %d -> ", val);
+        /*
+         * Instead use previous value, so the graph doesn't jump around
+         */ 
+        if (readSamples > 0) {
+          val = thrdata_ptr->sampleBuf[channel][readSamples-1];
+        }
+        rprintf("%d\n", val);
+      }
+
+      /*
+       * Fill buffer from left to right until you reach the end.
+       *
+       * Once there, instead keep shuffling sample values left by one and filling in the last slot (SAMPLESIZE-1) 
+       */
+
+      pthread_mutex_lock (&lock_threaddata);
+      if (readSamples == SAMPLESIZE-1) {
+        memmove(&thrdata_ptr->sampleBuf[channel][0], &thrdata_ptr->sampleBuf[channel][1],  sizeof(int)*(SAMPLESIZE-1));
+      }
+
+      thrdata_ptr->sampleBuf[channel][readSamples] = val;
+      pthread_mutex_unlock (&lock_threaddata);
+
+      if (readSamples < SAMPLESIZE-1 && channel == 1)
+        readSamples += 1;
+
+    }
+
+
+    if (counter % 50 == 0) {
+      rprintf("001");
+      counter = 1;
+
+      int i;
+      fftw_complex *in;
+      fftw_complex *in2;
+      fftw_complex *out;
+      fftw_plan plan_backward;
+      fftw_plan plan_forward;
+
+      in = fftw_malloc ( sizeof ( fftw_complex ) * SAMPLESIZE );
+      rprintf("002");
+
+      for (i = 0; i < SAMPLESIZE; i++) {
+        int val = thrdata_ptr->sampleBuf[0][i];
+        in[i][0] = val;
+        in[i][1] = 0;
+      }
+
+      out = fftw_malloc ( sizeof ( fftw_complex ) * SAMPLESIZE );
+      plan_forward = fftw_plan_dft_1d ( SAMPLESIZE, in, out, FFTW_FORWARD, FFTW_ESTIMATE );
+      fftw_execute ( plan_forward );
+      rprintf("003");
+
+      int num_freqs = 0;
+      float avg = 0;
+      for ( i = 0; i < SAMPLESIZE; i++ )
+      {
+        int hz;
+        int val;
+        val = abs(out[i][0]) ^ 2;
+        hz = ((i * SAMPLESIZE) / 100);
+        if (hz >= 20 && hz <= 48) {  // beta waves and low gamma waves
+          avg += val;
+          num_freqs++;
+        }
+      }
+      rprintf("004");
+      avg = avg / num_freqs;
+      rprintf("== AVG %f", avg);
+
+      pthread_mutex_lock (&lock_threaddata);
+      thrdata_ptr->avg = avg;
+      pthread_mutex_unlock (&lock_threaddata);
+
+      rprintf("avg increment finished: %f\n", thrdata_ptr->avg);
+    }
+  }
+
+  /* the function must return something - NULL will do */
+  return NULL;
 }
 
-void serverDied(void)
-{
-  rprintf("Server died!\n");
-  exit(1);
+int isANumber(const char *str) {
+  int i;
+  for (i = 0; str[i]; ++i)
+    if (!isdigit(str[i]))
+      return 0;
+  return 1;
 }
+
+
+
+
+
+
+
+
 
 void OnKey ( ESContext *esContext, unsigned char key, int x, int y)
 {
@@ -332,87 +396,6 @@ void OnKey ( ESContext *esContext, unsigned char key, int x, int y)
       exit( 0 );
       break;
   }
-}
-
-/*
- * eeg-client-related functions
- */
-void handleSample(int channel, int val)
-{
-  static int updateCounter = 0;
-  assert(channel == 0 || channel == 1);
-  if (!(val >= 0 && val < 1024)) {
-    printf("Got bad value: %d\n", val);
-    return;
-  }
-
-  /*
-   * Fill buffer from left to right until you reach the end.
-   *
-   * Once there, instead keep shuffling sample values left by one and filling in the last slot (SAMPLESIZE-1) 
-   */
-
-  if (readSamples == SAMPLESIZE-1) {
-    memmove(&threaddata.sampleBuf[channel][0], &threaddata.sampleBuf[channel][1],  sizeof(int)*(SAMPLESIZE-1));
-  }
-
-  threaddata.sampleBuf[channel][readSamples] = val;
-  if (readSamples < SAMPLESIZE-1 && channel == 1)
-    readSamples += 1;
-}
-
-void idleHandler(void)
-{
-  int i;
-  char *cur;
-  int vals[MAXCHANNELS + 5];
-  int curParam = 0;
-  int devNum, packetCounter, channels, *samples;
-
-  linePos = readline(sock_fd, lineBuf, sizeof(EDFPacket), &ib);
-  //rprintf("Got line retval=<%d>, <%s>\n", linePos, lineBuf);
-
-  if (isEOF(sock_fd, &ib))
-    exit(0);
-
-  if (linePos < MINLINELENGTH)
-    return;
-
-  if (lineBuf[0] != '!')
-    return;
-
-  for (cur = strtok(lineBuf, DELIMS); cur ; cur = strtok(NULL, DELIMS)) {
-    if (isANumber(cur))
-        vals[curParam++] = atoi(cur);
-// <devicenum> <packetcounter> <channels> data0 data1 data2 ...
-    if (curParam < 3)
-        continue;
-    devNum = vals[0];
-    packetCounter = vals[1];
-    channels = vals[2];
-    samples = vals + 3;
-    for (i = 0; i < channels; ++i) {
-      //rprintf("Sample #%d: %d\n", i, samples[i]);
-    }
-  }
-//  rprintf("Got sample with %d channels: %d\n", channels, packetCounter);
-
-  for (i = 0; i < 2; ++i)
-    handleSample(i, samples[i]);
-}
-
-int isANumber(const char *str) {
-  int i;
-  for (i = 0; str[i]; ++i)
-    if (!isdigit(str[i]))
-      return 0;
-  return 1;
-}
-
-gboolean readHandler(GIOChannel *source, GIOCondition cond, gpointer data)
-{
-    idleHandler();
-    return TRUE;
 }
 
 
@@ -663,11 +646,11 @@ void Draw ( ESContext *esContext )
   // Clear the color buffer
   glClear ( GL_COLOR_BUFFER_BIT );
 
-  // Use the program object
-
   if (mode == 0) {
+    // Use the program object
     glUseProgram ( userData->programs[0] );
-    GLfloat buffer[256*3];
+
+    GLfloat buffer[256*2];
     int i;
     int r;
     for (i = 0; i < SAMPLESIZE; i++) {
@@ -676,16 +659,16 @@ void Draw ( ESContext *esContext )
         buffer[i] = i * 0.0078125 - 1;
       } else {
         // Y-coord
-        if (threaddata.sampleBuf[0][i] > 1024) {
-          threaddata.sampleBuf[0][i] = 1024;
+        if (thrdata.sampleBuf[0][i] > 1024) {
+          thrdata.sampleBuf[0][i] = 1024;
         }
         /*
         if (i > 0 && abs(threaddata.sampleBuf[0][i] - threaddata.sampleBuf[0][i - i]) > 300) {
           threaddata.sampleBuf[0][i] = threaddata.sampleBuf[0][i - i];
         }
         */
-        GLfloat val = ((float) threaddata.sampleBuf[0][i]) * 0.001953125 - 1;
-        buffer[i] = val * CALIB_X_SCALE;
+        GLfloat val = ((float) thrdata.sampleBuf[0][i]) * 0.001953125 - 1;
+        buffer[i] = val; // * CALIB_X_SCALE;
       }
       //printf(" #%d: %f\t", i, buffer[i]);
       //printf("\n");
@@ -694,7 +677,7 @@ void Draw ( ESContext *esContext )
      // Load the vertex data
      glVertexAttribPointer ( 0, 2, GL_FLOAT, GL_FALSE, 0, buffer );
      glEnableVertexAttribArray ( 0 );
-
+     glLineWidth(2);
      glDrawArrays ( GL_LINE_STRIP, 0, 128 );    
   } else {
     glUseProgram ( userData->programs[mode] );
@@ -728,7 +711,7 @@ void Draw ( ESContext *esContext )
     // Set the sampler texture unit to 0
     glUniform1i ( userData->locIChannel0[mode], 0 );
 
-    float avg = threaddata.avg;
+    float avg = thrdata.avg;
 
     switch(mode) {
     case 1:  // waves    0.005 - .03
@@ -747,14 +730,17 @@ void Draw ( ESContext *esContext )
     }
 
     //avg = (rand() % 10 + 1) / 10.0;
-    printf("\navg %f", threaddata.avg);
+    printf("\navg %f", thrdata.avg);
 
     // Set the sampler texture unit to 0
     glUniform1f ( userData->locYOffset[mode], avg );
 
-    glUniform2f( userData->locIResolution[mode], SCREENWID, SCREENHEI );
+    glUniform2f( userData->locIResolution[mode], esContext->width, esContext->height );
 
     glDrawArrays ( GL_TRIANGLE_STRIP, 0, 18 );    
   }
 
 }
+
+
+

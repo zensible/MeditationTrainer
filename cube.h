@@ -1,26 +1,25 @@
+
 #ifndef CUBE_H
 #define CUBE_H
+
+#include <nsutil.h>
+#include <nsnet.h>
 #include "esUtil.h"
 
+
+/*
+ * Used by the modeedriver
+ */
+#define SAMPLESIZE 256
 #define MINLINELENGTH 4
 #define DELIMS " \r\n"
 #define SAMPLESIZE 256
 
-// eeg client-related prototypes
-void idleHandler(void);
-int isANumber(const char *str);
-void serverDied(void);
-
-
-// Display-related prototypes
-GLuint LoadShader ( GLenum type, const char *shaderSrc );
-GLuint LoadShaderDisk ( GLenum type, const GLchar *shaderSrc );
-void OnKey ( ESContext *esContext, unsigned char key, int x, int y);
-
-int Init ( ESContext *esContext );
-void Draw ( ESContext *esContext );
-char* file_read(const char* filename);
-void kill_child(int sig);
+typedef struct 
+{
+  float     avg; 
+  int sampleBuf[2][SAMPLESIZE];
+} THRDATA;
 
 struct Options {
     char hostname[MAXLEN];
@@ -31,6 +30,22 @@ struct Options {
     int isLimittedTime;
     double seconds;
 };
+
+/*
+ * Used by opengl es
+ */
+
+#ifdef RPI_NO_X
+
+#define SCREENWID 0
+#define SCREENHEI 0
+
+#else
+
+#define SCREENWID 640
+#define SCREENHEI 360
+
+#endif
 
 #define NUM_MODES 5
 
@@ -44,25 +59,13 @@ typedef struct
   GLuint locYOffset[NUM_MODES];
   GLuint locIResolution[NUM_MODES];
 
+  void*       thrdata_void_ptr;
+
   struct timeval timeStart;
 
    // Texture handle
    GLuint textureId;
 
 } UserData;
-
-
-#ifdef RPI_NO_X
-
-#define SCREENWID 1920
-#define SCREENHEI 1200
-
-#else
-
-#define SCREENWID 640
-#define SCREENHEI 360
-
-#endif
-
 
 #endif // CUBE_H

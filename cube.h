@@ -14,10 +14,15 @@
 #define MINLINELENGTH 4
 #define DELIMS " \r\n"
 
+
+#define X_SIZE 256
+#define ADC_RESOLUTION 1024
+#define FFT_SCALE_FACTOR (1024*1024*10)
+
 typedef struct 
 {
   float     avg; 
-  int sampleBuf[2][SAMPLESIZE];
+  unsigned int sampleBuf[2][SAMPLESIZE];
 } THRDATA;
 
 struct Options {

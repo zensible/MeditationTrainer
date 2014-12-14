@@ -227,7 +227,7 @@ void *poll_eeg_thread(void *thrdata_void_ptr)
       rprintf("Got EOF\n");
       return NULL;
     }
-    rprintf("Got line retval=<%d>, <%s>\n", linePos, lineBuf);
+    //rprintf("Got line retval=<%d>, <%s>\n", linePos, lineBuf);
 
     if (isEOF(sock_fd, &ib)) {
       rprintf("Got EOF\n");
@@ -262,7 +262,6 @@ void *poll_eeg_thread(void *thrdata_void_ptr)
     int channel;
     for (channel = 0; channel < 2; ++channel) {
       int val = samples[channel];
-      //handleSample(i, samples[i], thrdata_ptr);
 
       static int updateCounter = 0;
       assert(channel == 0 || channel == 1);
@@ -298,7 +297,6 @@ void *poll_eeg_thread(void *thrdata_void_ptr)
 
 
     if (counter % 50 == 0) {
-      rprintf("001");
       counter = 1;
 
       int i;
@@ -309,7 +307,6 @@ void *poll_eeg_thread(void *thrdata_void_ptr)
       fftw_plan plan_forward;
 
       in = fftw_malloc ( sizeof ( fftw_complex ) * SAMPLESIZE );
-      rprintf("002");
 
       for (i = 0; i < SAMPLESIZE; i++) {
         int val = thrdata_ptr->sampleBuf[0][i];
@@ -320,27 +317,69 @@ void *poll_eeg_thread(void *thrdata_void_ptr)
       out = fftw_malloc ( sizeof ( fftw_complex ) * SAMPLESIZE );
       plan_forward = fftw_plan_dft_1d ( SAMPLESIZE, in, out, FFTW_FORWARD, FFTW_ESTIMATE );
       fftw_execute ( plan_forward );
-      rprintf("003");
+
+      float avg_alpha = 0;  // 7.5 - 12.5
+      float avg_beta = 0;   // 12.5 - 16
+      float avg_delta = 0;  // 0.5 - 4
+      float avg_theta = 0;  // 4 - 7
+      float avg_gamma = 0;  // 32 - 48.5, 52.5 - 100  // Filter out AC fluctuations around 50hz
+
+      int num_alpha = 0;
+      int num_beta = 0;
+      int num_delta = 0;
+      int num_theta = 0;
+      int num_gamma = 0;
+
+      int mult_alpha = 1;
+      int mult_beta = 10;
+      int mult_delta = 1;
+      int mult_theta = 10;
+      int mult_gamma = 1;
 
       int num_freqs = 0;
       float avg = 0;
+      int val;
+      float hz;
       for ( i = 0; i < SAMPLESIZE; i++ )
       {
-        int hz;
-        int val;
         val = abs(out[i][0]) ^ 2;
         hz = ((i * SAMPLESIZE) / 100);
-        if (hz >= 20 && hz <= 48) {  // beta waves and low gamma waves
-          avg += val;
-          num_freqs++;
+
+        if (hz >= 7.5 && hz < 12.5) {  // predominantly originate from the occipital lobe during wakeful relaxation with closed eyes
+          avg_alpha += val;
+          num_alpha++;
+        }
+        if (hz >= 12.5 && hz < 28) {  // Normal waking consciousness
+          avg_beta += val;
+          num_beta++;
+        }
+        if (hz >= 0.5 && hz < 4) {  // usually associated with the deep stage 3 of NREM sleep, also known as slow-wave sleep
+          avg_delta += val;
+          num_delta++;
+        }
+        if (hz >= 4 && hz < 7) {  // it tends to appear during meditative, drowsy, or sleeping states, but not during the deepest stages of sleep
+          avg_theta += val;
+          num_theta++;
+        }
+        if ((hz >= 32 && hz < 48.5) || hz >= (52.5 && hz < 100)) {  // gamma waves may be implicated in creating the unity of conscious perception
+          avg_gamma += val;
+          num_gamma++;
         }
       }
-      rprintf("004");
-      avg = avg / num_freqs;
-      rprintf("== AVG %f", avg);
+      avg_alpha = avg_alpha / num_alpha;
+      avg_beta = avg_beta / num_beta;
+      avg_delta = avg_delta / num_delta;
+      avg_theta = avg_theta / num_theta;
+      avg_gamma = avg_gamma / num_gamma;
+
+      rprintf("== AVG Delta:    %f\n", avg_delta);
+      rprintf("== AVG Theta:    %f\n", avg_theta);
+      rprintf("== AVG Alpha:    %f\n", avg_alpha);
+      rprintf("== AVG Beta:    %f\n", avg_beta);
+      rprintf("== AVG Gamma:    %f\n", avg_gamma);
 
       pthread_mutex_lock (&lock_threaddata);
-      thrdata_ptr->avg = avg;
+      thrdata_ptr->avg = avg_beta;
       pthread_mutex_unlock (&lock_threaddata);
 
       rprintf("avg increment finished: %f\n", thrdata_ptr->avg);
@@ -595,6 +634,7 @@ int Init ( ESContext *esContext )
   char cwd[1024];
   if (getcwd(cwd, sizeof(cwd)) == NULL)
     perror("getcwd() error");
+  rprintf("001.\n");
 
   // Store the program object
   userData->programs[0] = getProgram(0, "/vertex.glsl", "/calibrate.glsl");
@@ -613,6 +653,7 @@ int Init ( ESContext *esContext )
     userData->locYOffset[i] = glGetUniformLocation( userData->programs[i], "yOffset" );
     userData->locIResolution[i] = glGetUniformLocation( userData->programs[i], "iResolution");
   }
+  rprintf("002.\n");
 
   gettimeofday(&userData->timeStart, NULL);
 
@@ -624,6 +665,7 @@ int Init ( ESContext *esContext )
 
   userData->textureId = LoadTexture( path_tex16 );
 
+  rprintf("003.\n");
 
   if ( userData->textureId == 0 )
     return FALSE;
@@ -668,7 +710,7 @@ void Draw ( ESContext *esContext )
         }
         */
         GLfloat val = ((float) thrdata.sampleBuf[0][i]) * 0.001953125 - 1;
-        buffer[i] = val; // * CALIB_X_SCALE;
+        buffer[i] = val * 2; // Amplify Y-axis by 2 for sensitivity;
       }
       //printf(" #%d: %f\t", i, buffer[i]);
       //printf("\n");
@@ -677,8 +719,8 @@ void Draw ( ESContext *esContext )
      // Load the vertex data
      glVertexAttribPointer ( 0, 2, GL_FLOAT, GL_FALSE, 0, buffer );
      glEnableVertexAttribArray ( 0 );
-     glLineWidth(2);
-     glDrawArrays ( GL_LINE_STRIP, 0, 128 );    
+     glLineWidth(3);
+     glDrawArrays ( GL_LINE_STRIP, 0, SAMPLESIZE / 2 );    
   } else {
     glUseProgram ( userData->programs[mode] );
     // Completely cover the screen
@@ -715,22 +757,23 @@ void Draw ( ESContext *esContext )
 
     switch(mode) {
     case 1:  // waves    0.005 - .03
-      //avg = avg * (0.05/1024.0) + 0.03;
-      avg = avg * 0.00004882812 + 0.03;
+      //avg = avg * (0.5/1024.0) + 0.03;
+      avg = avg * 0.00004882812 + 0.01;
       break;
     case 2:  // fire  0.005 - .5
       avg = avg * 0.000390625 + 0.005;
       break;
     case 3:  // oscope  0.005 - .01
-      avg = avg * 0.00004882812 + 0.01;
+      avg = avg * 0.00048828125 + 0.01;
       break;
     case 4:  // fiery_spiral   .01 - .05
       avg = (avg * 0.00000976562 + 0.01) * 1.25;
       break;
     }
 
+    avg *= 1.5; // Increase sensitivty
     //avg = (rand() % 10 + 1) / 10.0;
-    printf("\navg %f", thrdata.avg);
+    printf("\navg %f", avg);
 
     // Set the sampler texture unit to 0
     glUniform1f ( userData->locYOffset[mode], avg );

@@ -13,7 +13,6 @@
 #define SAMPLESIZE 256
 #define MINLINELENGTH 4
 #define DELIMS " \r\n"
-#define SAMPLESIZE 256
 
 typedef struct 
 {

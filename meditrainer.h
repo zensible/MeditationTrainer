@@ -46,8 +46,8 @@ struct Options {
 
 #else
 
-#define SCREENWID 640
-#define SCREENHEI 360
+#define SCREENWID 1024
+#define SCREENHEI 768
 
 #endif
 

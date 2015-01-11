@@ -43,6 +43,7 @@ static struct termios original;
 
 //-------------------------------------------------------------------------
 
+// Raspberry Pi: return latest key press
 bool keyPressed(int *character)
 {
     // If this is the first time the function is called, change the stdin
@@ -289,7 +290,7 @@ EGLBoolean WinCreate(ESContext *esContext, const char *title)
 ///
 //  userInterrupt()
 //
-//      Reads from X11 event loop and interrupt program if there is a keypress, or
+//      Reads from RPI event loop and interrupt program if there is a keypress, or
 //      window close action.
 //
 GLboolean userInterrupt(ESContext *esContext)

@@ -24,10 +24,13 @@ LIBS_RPI = -lbcm_host -L/opt/vc/lib
 
 all: $(MEDITRAINER_X11)
 
-setup:
+setup_nsd:
 	-rm nsd
 	-rm modeegdriver
 	cd setup-nsd && ./configure && make && cd src && cp nsd ../../ && cp modeegdriver ../../ && cd ../../
+
+setup_fftw2:
+	cd setup-fftw2 && ./configure && make && sudo make install && cd ../../
 
 $(MEDITRAINER_X11): $(SRCS)
 	$(CC) -o $(MEDITRAINER_X11) $(SRCS) $(INCLUDES) -I. `pkg-config --cflags --libs glib-2.0` $(LIBS) $(LIBS_X11)

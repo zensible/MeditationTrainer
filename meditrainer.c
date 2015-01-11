@@ -602,11 +602,11 @@ int Init ( ESContext *esContext )
   rprintf("001.\n");
 
   // Store the program object
-  userData->programs[0] = getProgram(0, "/vertex.glsl", "/calibrate.glsl");
-  userData->programs[1] = getProgram(1, "/vertex.glsl", "/waves.glsl");
-  userData->programs[2] = getProgram(2, "/vertex.glsl", "/fire.glsl");
-  userData->programs[3] = getProgram(3, "/vertex.glsl", "/oscope.glsl");
-  userData->programs[4] = getProgram(4, "/vertex.glsl", "/fiery_spiral.glsl");
+  userData->programs[0] = getProgram(0, "/shaders/vertex.glsl", "/shaders/calibrate.glsl");
+  userData->programs[1] = getProgram(1, "/shaders/vertex.glsl", "/shaders/waves.glsl");
+  userData->programs[2] = getProgram(2, "/shaders/vertex.glsl", "/shaders/fire.glsl");
+  userData->programs[3] = getProgram(3, "/shaders/vertex.glsl", "/shaders/oscope.glsl");
+  userData->programs[4] = getProgram(4, "/shaders/vertex.glsl", "/shaders/fiery_spiral.glsl");
   //userData->programs[5] = getProgram(5, "/vertex.glsl", "/torusjourney.glsl");
   //userData->programs[6] = getProgram(6, "/vertex.glsl", "/galaxy.glsl");
 
@@ -649,17 +649,6 @@ void Draw ( ESContext *esContext )
   UserData *userData = esContext->userData;
 
 
-
-
-  //rprintf("\n\n== counter %d\n\nreadSamples %d", counter, readSamples);
-
-
-
-
-
-
-
-
   // Set the viewport
   glViewport ( 0, 0, esContext->width, esContext->height );
    
@@ -688,7 +677,7 @@ void Draw ( ESContext *esContext )
         }
         */
         GLfloat val = ((float) thrdata.sampleBuf[0][i]) * (2.0/ ((float) esContext->height)) - 1.0;
-        buffer[i] = val * 2; // Amplify Y-axis by 2 for sensitivity;
+        buffer[i] = val * 1.2; // Amplify Y-axis by 2 for sensitivity;
       }
       //printf(" #%d: %f\t", i, buffer[i]);
       //printf("\n");

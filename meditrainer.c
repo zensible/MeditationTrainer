@@ -17,7 +17,7 @@
 #include <pthread.h>
 #include <stdio.h>
 
-#include "cube.h"
+#include "meditrainer.h"
 
 //http://timmurphy.org/2010/05/04/pthreads-in-c-a-minimal-working-example/
 //https://computing.llnl.gov/tutorials/pthreads/
@@ -347,7 +347,7 @@ void *poll_eeg_thread(void *thrdata_void_ptr)
 
       //thrdata_ptr->avg = Gamma * 1024.0 * 2.5;
       //thrdata_ptr->avg = beta * 1024.0 * 15;
-      thrdata_ptr->avg = theta * 1024.0 * 10;
+      thrdata_ptr->avg = alpha * 1024.0 * 10;
       rprintf("avg increment finished: %f\n", thrdata_ptr->avg);
     }
   }
